@@ -1,9 +1,3 @@
-"""
-Streamlit Web Application for Mental Health Prediction.
-Provides a user interface to interact with the prediction API,
-visualize results, and trigger AI agent notifications.
-"""
-
 import streamlit as st
 import requests
 import pandas as pd
@@ -12,123 +6,162 @@ import plotly.graph_objects as go
 import json
 from datetime import datetime
 
-# --- Configuration ---
+# Configuration
 API_URL = "http://serving-api:8080"
 N8N_WEBHOOK_URL = "http://n8n:5678/webhook/notify-user"
 
+# Traductions (francais -> anglais pour l'API)
+GENDER_MAP = {
+    "Homme": "Male", 
+    "Femme": "Female"
+    }
+
+OCCUPATION_MAP = {
+    "Informatique": "IT", 
+    "Ingenierie": "Engineering", 
+    "Sante": "Healthcare",
+    "Education": "Education", 
+    "Finance": "Finance", 
+    "Ventes": "Sales", 
+    "Autre": "Other"
+}
+
+COUNTRY_MAP = {
+    "Etats-Unis": "USA", 
+    "Inde": "India", 
+    "Canada": "Canada",
+    "Royaume-Uni": "UK", 
+    "Allemagne": "Germany", 
+    "Australie": "Australia", 
+    "Autre": "Other"
+}
+
+SEVERITY_MAP = {
+    "Aucune": "None", 
+    "Faible": "Low", 
+    "Moyenne": "Medium", 
+    "Elevee": "High"
+}
+
+YES_NO_MAP = {
+    "Oui": "Yes", 
+    "Non": "No"
+}
+
+STRESS_MAP = {
+    "Faible": "Low", 
+    "Moyen": "Medium", 
+    "Eleve": "High"
+}
+
 st.set_page_config(
-    page_title="Mental Health Prediction",
-    page_icon="🧠",
+    page_title="Prediction Sante Mentale",
     layout="wide"
 )
 
-st.title("🧠 Mental Health Condition Prediction")
-st.markdown("---")
-
-# --- Session state initialization ---
+# Session state initialization
 if "predictions_history" not in st.session_state:
     st.session_state.predictions_history = []
 if "last_prediction" not in st.session_state:
     st.session_state.last_prediction = None
 
 
-# --- Sidebar: API Status ---
+# Sidebar
 with st.sidebar:
-    st.header("📊 System Status")
+    st.header("Statut du systeme")
     try:
         health = requests.get(f"{API_URL}/health", timeout=5).json()
-        st.success(f"API Status: {health['status']}")
+        st.success(f"Statut API : {health['status']}")
 
         model_info = requests.get(f"{API_URL}/model-info", timeout=5).json()
-        st.metric("Total Feedbacks", model_info.get("total_feedbacks", 0))
-        st.metric("Next Retrain At", model_info.get("next_retrain_at", "N/A"))
-        st.metric("Model Type", model_info.get("model_type", "N/A"))
+        st.metric("Total retours", model_info.get("total_feedbacks", 0))
+        st.metric("Prochain re-entrainement", model_info.get("next_retrain_at", "N/A"))
+        st.metric("Type de modele", model_info.get("model_type", "N/A"))
     except Exception as e:
-        st.error(f"API not reachable: {e}")
+        st.error(f"API non joignable : {e}")
 
-    st.markdown("---")
-    st.header("📈 Prediction History")
+    st.header("Historique des predictions")
     if st.session_state.predictions_history:
         hist_df = pd.DataFrame(st.session_state.predictions_history)
-        # Distribution of predictions
+        # Distribution des predictions
         fig_hist = px.histogram(
             hist_df, x="prediction_label",
             color="prediction_label",
-            title="Prediction Distribution",
+            title="Distribution des predictions",
             color_discrete_map={"Yes": "#ff6b6b", "No": "#51cf66"}
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
-        # Probability scores over time
+        # Scores de probabilite dans le temps
         fig_proba = px.line(
             hist_df, y="probability_yes",
-            title="Risk Score Over Time",
-            labels={"probability_yes": "P(Yes)", "index": "Prediction #"}
+            title="Score de risque dans le temps",
+            labels={"probability_yes": "P(Oui)", "index": "Prediction n"}
         )
         fig_proba.add_hline(y=0.5, line_dash="dash", line_color="red")
         st.plotly_chart(fig_proba, use_container_width=True)
 
-        # Alert rate
+        # Taux d'alerte
         alert_rate = len(hist_df[hist_df["prediction"] == 1]) / len(hist_df) * 100
-        st.metric("Alert Rate", f"{alert_rate:.1f}%")
+        st.metric("Taux d'alerte", f"{alert_rate:.1f}%")
     else:
-        st.info("No predictions yet.")
+        st.info("Aucune prediction pour le moment.")
 
 
-# --- Main: Input Form ---
-st.header("📝 Patient Information")
+# Main => Formulaire de saisie
+st.header("Informations du patient")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
     age = st.number_input("Age", min_value=1, max_value=120, value=30)
-    gender = st.selectbox("Gender", ["Male", "Female", "Non-binary", "Prefer not to say"])
-    occupation = st.selectbox("Occupation", ["IT", "Engineering", "Healthcare", "Education", "Finance", "Sales", "Other"])
+    gender = st.selectbox("Genre", list(GENDER_MAP.keys()))
+    occupation = st.selectbox("Profession", list(OCCUPATION_MAP.keys()))
 
 with col2:
-    country = st.selectbox("Country", ["USA", "India", "Canada", "UK", "Germany", "Australia", "Other"])
-    severity = st.selectbox("Severity (current symptoms)", ["None", "Low", "Medium", "High"])
-    consultation_history = st.selectbox("Previous Consultation", ["Yes", "No"])
+    country = st.selectbox("Pays", list(COUNTRY_MAP.keys()))
+    severity = st.selectbox("Severite (symptomes actuels)", list(SEVERITY_MAP.keys()))
+    consultation_history = st.selectbox("Consultation precedente", list(YES_NO_MAP.keys()))
 
 with col3:
-    stress_level = st.selectbox("Stress Level", ["Low", "Medium", "High"])
-    sleep_hours = st.number_input("Sleep Hours (per night)", min_value=0.0, max_value=24.0, value=7.0, step=0.5)
-    work_hours = st.number_input("Work Hours (per week)", min_value=0.0, max_value=120.0, value=40.0, step=1.0)
+    stress_level = st.selectbox("Niveau de stress", list(STRESS_MAP.keys()))
+    sleep_hours = st.number_input("Heures de sommeil (par nuit)", min_value=0.0, max_value=24.0, value=7.0, step=0.5)
+    work_hours = st.number_input("Heures de travail (par semaine)", min_value=0.0, max_value=120.0, value=40.0, step=1.0)
 
-physical_activity = st.slider("Physical Activity (hours/week)", min_value=0, max_value=20, value=3)
+physical_activity = st.slider("Activite physique (heures/semaine)", min_value=0, max_value=20, value=3)
 
-# Optional: Email for notification
-user_email = st.text_input("📧 User Email (for AI agent notification)", placeholder="user@example.com")
+# Optionnel : Email pour notification
+user_email = st.text_input("Email utilisateur (pour notification par agent IA)", placeholder="utilisateur@exemple.com")
 
 st.markdown("---")
 
-# --- Prediction Button ---
+# Prediction Button
 col_pred, col_notify = st.columns(2)
 
 with col_pred:
-    predict_btn = st.button("🔮 Predict", type="primary", use_container_width=True)
+    predict_btn = st.button("Predire", type="primary", use_container_width=True)
 
 with col_notify:
-    notify_btn = st.button("📨 Notify User (AI Agent)", use_container_width=True,
+    notify_btn = st.button("Notifier l'utilisateur (Agent IA)", use_container_width=True,
                            disabled=st.session_state.last_prediction is None)
 
-# --- Handle Prediction ---
+# Handle Prediction 
 if predict_btn:
     input_data = {
         "Age": age,
-        "Gender": gender,
-        "Occupation": occupation,
-        "Country": country,
-        "Severity": severity,
-        "Consultation_History": consultation_history,
-        "Stress_Level": stress_level,
+        "Gender": GENDER_MAP[gender],
+        "Occupation": OCCUPATION_MAP[occupation],
+        "Country": COUNTRY_MAP[country],
+        "Severity": SEVERITY_MAP[severity],
+        "Consultation_History": YES_NO_MAP[consultation_history],
+        "Stress_Level": STRESS_MAP[stress_level],
         "Sleep_Hours": sleep_hours,
         "Work_Hours": work_hours,
         "Physical_Activity_Hours": physical_activity
     }
 
     try:
-        with st.spinner("Calling prediction API..."):
+        with st.spinner("Appel de l'API de prediction..."):
             response = requests.post(f"{API_URL}/predict", json=input_data, timeout=10)
             result = response.json()
 
@@ -142,29 +175,29 @@ if predict_btn:
         # Add to history
         st.session_state.predictions_history.append(result)
 
-        # Display result
+        # Affichage du resultat
         st.markdown("---")
-        st.header("🎯 Prediction Result")
+        st.header("Resultat de la prediction")
 
         res_col1, res_col2, res_col3 = st.columns(3)
 
         with res_col1:
             if result["prediction"] == 1:
-                st.error(f"⚠️ Mental Health Condition: **{result['prediction_label']}**")
+                st.error(f"Condition de sante mentale : **{result['prediction_label']}**")
             else:
-                st.success(f"✅ Mental Health Condition: **{result['prediction_label']}**")
+                st.success(f"Condition de sante mentale : **{result['prediction_label']}**")
 
         with res_col2:
-            st.metric("Probability (Yes)", f"{result['probability_yes']:.2%}")
+            st.metric("Probabilite (Oui)", f"{result['probability_yes']:.2%}")
 
         with res_col3:
-            st.metric("Probability (No)", f"{result['probability_no']:.2%}")
+            st.metric("Probabilite (Non)", f"{result['probability_no']:.2%}")
 
         # Probability gauge
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number",
             value=result["probability_yes"] * 100,
-            title={"text": "Risk Score (%)"},
+            title={"text": "Score de risque (%)"},
             gauge={
                 "axis": {"range": [0, 100]},
                 "bar": {"color": "darkred" if result["probability_yes"] > 0.5 else "green"},
@@ -183,35 +216,35 @@ if predict_btn:
         fig_gauge.update_layout(height=300)
         st.plotly_chart(fig_gauge, use_container_width=True)
 
-        # Feature importance interpretation
-        st.subheader("📊 Feature Interpretation")
+        # Interpretation des facteurs
+        st.subheader("Interpretation des facteurs")
         st.markdown("""
-        **Key factors influencing this prediction:**
-        - **Stress Level**: {} stress can significantly increase risk
-        - **Sleep Hours**: {:.1f}h/night ({})
-        - **Work Hours**: {:.1f}h/week ({})
-        - **Consultation History**: {} prior consultation
-        - **Severity of Current Symptoms**: {}
+        **Facteurs cles influencant cette prediction :**
+        - **Niveau de stress** : un stress {} peut augmenter significativement le risque
+        - **Heures de sommeil** : {:.1f}h/nuit ({})
+        - **Heures de travail** : {:.1f}h/semaine ({})
+        - **Historique de consultation** : {} consultation prealable
+        - **Severite des symptomes actuels** : {}
         """.format(
             stress_level,
             sleep_hours,
-            "below recommended" if sleep_hours < 7 else "adequate",
+            "en dessous des recommandations" if sleep_hours < 7 else "adequat",
             work_hours,
-            "above average" if work_hours > 45 else "normal range",
-            "Has" if consultation_history == "Yes" else "No",
+            "au-dessus de la moyenne" if work_hours > 45 else "dans la normale",
+            "A eu une" if consultation_history == "Oui" else "Aucune",
             severity
         ))
 
     except requests.exceptions.ConnectionError:
-        st.error("❌ Cannot connect to the prediction API. Make sure the serving container is running.")
+        st.error("Impossible de se connecter a l'API de prediction. Verifiez que le conteneur serving est en cours d'execution.")
     except Exception as e:
-        st.error(f"❌ Error: {e}")
+        st.error(f"Erreur : {e}")
 
-# --- Handle Notification (AI Agent) ---
+# Handle Notification (AI Agent)
 if notify_btn and st.session_state.last_prediction:
     pred = st.session_state.last_prediction
     if not pred.get("user_email"):
-        st.warning("⚠️ Please provide an email address to notify the user.")
+        st.warning("Veuillez fournir une adresse email pour notifier l'utilisateur.")
     else:
         try:
             payload = {
@@ -225,26 +258,16 @@ if notify_btn and st.session_state.last_prediction:
                 "timestamp": pred["timestamp"]
             }
 
-            with st.spinner("Sending notification via AI Agent (n8n)..."):
+            with st.spinner("Envoi de la notification via l'agent IA (n8n)..."):
                 response = requests.post(N8N_WEBHOOK_URL, json=payload, timeout=30)
 
             if response.status_code == 200:
-                st.success("✅ Notification sent successfully via AI Agent!")
-                st.info("The user will receive an email with the prediction details and a link to provide feedback.")
+                st.success("Notification envoyee avec succes via l'agent IA !")
+                st.info("L'utilisateur recevra un email avec les details de la prediction et un lien pour donner son retour.")
             else:
-                st.warning(f"⚠️ Agent responded with status {response.status_code}: {response.text}")
+                st.warning(f"L'agent a repondu avec le statut {response.status_code} : {response.text}")
 
         except requests.exceptions.ConnectionError:
-            st.warning("⚠️ n8n agent not reachable. Make sure the n8n container is running.")
+            st.warning("Agent n8n non joignable. Verifiez que le conteneur n8n est en cours d'execution.")
         except Exception as e:
-            st.error(f"❌ Error sending notification: {e}")
-
-
-# --- Footer ---
-st.markdown("---")
-st.markdown(
-    "<div style='text-align: center; color: grey;'>"
-    "Mental Health Prediction MLOps Project — 2025-2026"
-    "</div>",
-    unsafe_allow_html=True
-)
+            st.error(f"Erreur lors de l'envoi de la notification : {e}")
