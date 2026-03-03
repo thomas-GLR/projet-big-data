@@ -1,0 +1,78 @@
+version: '3.8'
+
+networks:
+  prod_net:
+    driver: bridge
+
+services:
+  # ---- FastAPI Serving API ----
+  serving-api:
+    container_name: serving-api
+    build:
+      context: ./serving
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/data
+      - ./artifacts:/artifacts
+    ports:
+      - "8080:8080"
+    networks:
+      - prod_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---- Streamlit Web App ----
+  webapp:
+    container_name: webapp
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    networks:
+      - prod_net
+    depends_on:
+      - serving-api
+    restart: unless-stopped
+
+  # ---- Evidently Reporting ----
+  reporting:
+    container_name: reporting
+    build:
+      context: ./reporting
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/data
+    ports:
+      - "8082:8082"
+    networks:
+      - prod_net
+    depends_on:
+      - serving-api
+    restart: unless-stopped
+
+  # ---- n8n AI Agent (Workflow Automation) ----
+  n8n:
+    container_name: n8n
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - WEBHOOK_URL=http://localhost:5678/
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Europe/Paris
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - prod_net
+    restart: unless-stopped
+
+volumes:
+  n8n_data:

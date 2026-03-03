@@ -1,0 +1,4 @@
+evidently
+pandas
+numpy
+scikit-learn

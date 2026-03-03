@@ -1,0 +1,116 @@
+{
+  "name": "Mental Health Prediction - AI Agent Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "notify-user",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Notify User",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a mental health assistant AI. Based on the prediction results from our ML model, compose a professional and empathetic email to notify the user about their mental health screening results. The email should: 1) Explain the prediction in simple terms, 2) Provide supportive context, 3) Include a clear call-to-action for the user to confirm or correct the prediction. Keep the tone compassionate and non-alarming."
+            },
+            {
+              "role": "user",
+              "content": "=Generate an email for the following prediction:\n\nPrediction: {{ $json.prediction_label }}\nProbability of mental health condition: {{ $json.probability_yes }}\nUser email: {{ $json.email }}\nTimestamp: {{ $json.timestamp }}\n\nInput data:\n- Age: {{ $json.input_data.Age }}\n- Stress Level: {{ $json.input_data.Stress_Level }}\n- Sleep Hours: {{ $json.input_data.Sleep_Hours }}\n- Work Hours: {{ $json.input_data.Work_Hours }}\n\nPlease generate:\n1. Email subject line\n2. Email body (HTML formatted)\n\nThe email should include a feedback section where the user can confirm or correct the prediction."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "openai-llm",
+      "name": "OpenAI - Generate Email",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "mental-health-prediction@example.com",
+        "toEmail": "={{ $node['Webhook - Notify User'].json.email }}",
+        "subject": "=Mental Health Screening Result - {{ $node['Webhook - Notify User'].json.prediction_label }}",
+        "html": "=<html><body>{{ $json.choices[0].message.content }}<br><br><h3>Confirm or Correct this prediction:</h3><p><a href='http://localhost:8080/feedback-form?embedding={{ encodeURIComponent(JSON.stringify($node[\"Webhook - Notify User\"].json.embedding)) }}&prediction={{ $node[\"Webhook - Notify User\"].json.prediction }}&email={{ $node[\"Webhook - Notify User\"].json.email }}' style='background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Review & Provide Feedback</a></p></body></html>",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [750, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"success\", \"message\": \"Notification sent to {{ $node['Webhook - Notify User'].json.email }}\"}"
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Notify User": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generate Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Generate Email": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
