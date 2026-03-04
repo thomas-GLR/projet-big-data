@@ -1,1 +1,1 @@
-pca_0,pca_1,pca_2,pca_3,pca_4,prediction,user_feedback,target
+Q3A,Q10A,Q13A,Q16A,Q26A,Q34A,Q37A,Q38A,age,voted,familysize,education_0,education_1,education_2,education_3,education_4,urban_0,urban_1,urban_2,urban_3,urban_4,gender_0,gender_1,gender_2,gender_3,gender_4,hand_0,hand_1,hand_2,hand_3,hand_4,religion_0,religion_1,religion_2,religion_3,religion_4,orientation_0,orientation_1,orientation_2,orientation_3,orientation_4,race_0,race_1,race_2,race_3,race_4,married_0,married_1,married_2,married_3,married_4,prediction,user_feedback,target
