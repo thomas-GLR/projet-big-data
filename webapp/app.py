@@ -14,33 +14,26 @@ N8N_WEBHOOK_URL = "http://n8n:5678/webhook/notify-user"
 GENDER_MAP = {
     "Homme": "Male", 
     "Femme": "Female"
-    }
-
-OCCUPATION_MAP = {
-    "Informatique": "IT", 
-    "Ingenierie": "Engineering", 
-    "Sante": "Healthcare",
-    "Education": "Education", 
-    "Finance": "Finance", 
-    "Ventes": "Sales", 
-    "Autre": "Other"
 }
 
 COUNTRY_MAP = {
-    "Etats-Unis": "USA", 
+    "Etats-Unis": "United States", 
     "Inde": "India", 
     "Canada": "Canada",
-    "Royaume-Uni": "UK", 
-    "Allemagne": "Germany", 
+    "Royaume-Uni": "United Kingdom", 
+    "Allemagne": "Germany",
     "Australie": "Australia", 
-    "Autre": "Other"
+    "Afrique du Sud": "South Africa",
+    "Japon": "Japan", 
+    "Bresil": "Brazil", 
+    "France": "France"
 }
 
-SEVERITY_MAP = {
-    "Aucune": "None", 
+STRESS_MAP = {
     "Faible": "Low", 
-    "Moyenne": "Medium", 
-    "Elevee": "High"
+    "Moyen": "Medium", 
+    "Eleve": "High", 
+    "Severe": "Severe"
 }
 
 YES_NO_MAP = {
@@ -48,11 +41,61 @@ YES_NO_MAP = {
     "Non": "No"
 }
 
-STRESS_MAP = {
+PHYSICAL_ACTIVITY_MAP = {
     "Faible": "Low", 
-    "Moyen": "Medium", 
-    "Eleve": "High"
+    "Moderee": "Moderate", 
+    "Elevee": "High"
 }
+
+TREATMENT_MAP = {
+    "Therapie": "Therapy", 
+    "Medicaments": "Medication", 
+    "Les deux": "Both", 
+    "Aucun": None
+}
+
+WORK_STATUS_MAP = {
+    "Employe": "Employed", 
+    "Sans emploi": "Unemployed", 
+    "Etudiant": "Student", 
+    "Retraite": "Retired"
+}
+
+GAD7_OPTIONS = {
+    "Jamais": 0,
+    "Plusieurs jours": 1,
+    "Plus de la moitie des jours": 2,
+    "Presque tous les jours": 3
+}
+
+GAD7_QUESTIONS = [
+    "Se sentir nerveux(se), anxieux(se) ou a cran",
+    "Ne pas etre capable d'arreter de s'inquieter ou de controler ses inquietudes",
+    "S'inquieter de maniere excessive a propos de differentes choses",
+    "Avoir du mal a se detendre",
+    "Etre si agite(e) qu'il est difficile de rester assis(e)",
+    "Devenir facilement contrarie(e) ou irritable",
+    "Avoir peur que quelque chose de terrible puisse arriver"
+]
+
+PHQ9_OPTIONS = {
+    "Jamais": 0,
+    "Plusieurs jours": 1,
+    "Plus de la moitie des jours": 2,
+    "Presque tous les jours": 3
+}
+
+PHQ9_QUESTIONS = [
+    "Peu d'interet ou de plaisir a faire les choses",
+    "Se sentir triste, deprimé(e) ou sans espoir",
+    "Avoir du mal a s'endormir ou a rester endormi(e), ou dormir trop",
+    "Se sentir fatigué(e) ou n'avoir aucune energie",
+    "Avoir un appétit diminué ou excessif",
+    "Se sentir mal dans sa peau - ou que l'on est un échec ou que l'on a déçu sa famille",
+    "Avoir du mal à se concentrer sur des choses comme lire le journal ou regarder la télévision",
+    "Parler ou bouger si lentement que les autres pourraient l'avoir remarqué, ou être tellement agité(e) que vous bougez beaucoup plus que d'habitude",
+    "Avoir des pensées que vous seriez mieux mort(e) ou de vous faire du mal d'une manière ou d'une autre"
+]
 
 st.set_page_config(
     page_title="Prediction Sante Mentale",
@@ -108,7 +151,7 @@ with st.sidebar:
         st.info("Aucune prediction pour le moment.")
 
 
-# Main => Formulaire de saisie
+# Main => Form
 st.header("Informations du patient")
 
 col1, col2, col3 = st.columns(3)
@@ -116,24 +159,67 @@ col1, col2, col3 = st.columns(3)
 with col1:
     age = st.number_input("Age", min_value=1, max_value=120, value=30)
     gender = st.selectbox("Genre", list(GENDER_MAP.keys()))
-    occupation = st.selectbox("Profession", list(OCCUPATION_MAP.keys()))
+    country = st.selectbox("Pays", list(COUNTRY_MAP.keys()))
+    stress_level = st.selectbox("Niveau de stress", list(STRESS_MAP.keys()))
+    sleep_hours = st.number_input("Heures de sommeil (par nuit)", min_value=3.0, max_value=12.0, value=7.5, step=0.5)
 
 with col2:
-    country = st.selectbox("Pays", list(COUNTRY_MAP.keys()))
-    severity = st.selectbox("Severite (symptomes actuels)", list(SEVERITY_MAP.keys()))
-    consultation_history = st.selectbox("Consultation precedente", list(YES_NO_MAP.keys()))
+    physical_activity = st.selectbox("Activite physique", list(PHYSICAL_ACTIVITY_MAP.keys()))
+    chronic_illness = st.selectbox("Maladie chronique", list(YES_NO_MAP.keys()))
+    mental_health_history = st.selectbox("Antecedents de sante mentale", list(YES_NO_MAP.keys()))
 
 with col3:
-    stress_level = st.selectbox("Niveau de stress", list(STRESS_MAP.keys()))
-    sleep_hours = st.number_input("Heures de sommeil (par nuit)", min_value=0.0, max_value=24.0, value=7.0, step=0.5)
-    work_hours = st.number_input("Heures de travail (par semaine)", min_value=0.0, max_value=120.0, value=40.0, step=1.0)
+    treatment = st.selectbox("Traitement en cours", list(TREATMENT_MAP.keys()))
+    days_of_treatment = st.number_input("Jours de traitement", min_value=0, max_value=365, value=0, step=1)
+    work_status = st.selectbox("Situation professionnelle", list(WORK_STATUS_MAP.keys()))
 
-physical_activity = st.slider("Activite physique (heures/semaine)", min_value=0, max_value=20, value=3)
+# GAD-7
+st.header("Questionnaire GAD-7")
+st.markdown("Au cours des **2 dernieres semaines**, a quelle frequence avez-vous ete gene(e) par les problemes suivants ?")
+
+gad7_scores = []
+for i, question in enumerate(GAD7_QUESTIONS):
+    score = st.selectbox(
+        f"{i+1}. {question}",
+        options=list(GAD7_OPTIONS.keys()),
+        key=f"gad7_{i}"
+    )
+    gad7_scores.append(GAD7_OPTIONS[score])
+
+anxiety_score = sum(gad7_scores)
+
+# Interpretation du score
+if anxiety_score <= 4:
+    gad7_interpretation = "Anxiete minimale"
+elif anxiety_score <= 9:
+    gad7_interpretation = "Anxiete legere"
+elif anxiety_score <= 14:
+    gad7_interpretation = "Anxiete moderee"
+else:
+    gad7_interpretation = "Anxiete severe"
+
+st.metric("Score GAD-7 total", f"{anxiety_score} / 21 -- {gad7_interpretation}")
+
+
+# PHQ 9
+st.header("Questionnaire PHQ-9")
+st.markdown("Au cours des **2 dernieres semaines**, a quelle frequence avez-vous ete gene(e) par les problemes suivants ?")
+
+phq9_scores = []
+for i, question in enumerate(PHQ9_QUESTIONS):
+    score = st.selectbox(
+        f"{i+1}. {question}",
+        options=list(PHQ9_OPTIONS.keys()),
+        key=f"phq9_{i}"
+    )
+    phq9_scores.append(PHQ9_OPTIONS[score])
+
+depression_score = sum(phq9_scores)
+
+st.metric("Score PHQ-9 total", f"{depression_score} / 27")
 
 # Optionnel : Email pour notification
 user_email = st.text_input("Email utilisateur (pour notification par agent IA)", placeholder="utilisateur@exemple.com")
-
-st.markdown("---")
 
 # Prediction Button
 col_pred, col_notify = st.columns(2)
@@ -150,14 +236,17 @@ if predict_btn:
     input_data = {
         "Age": age,
         "Gender": GENDER_MAP[gender],
-        "Occupation": OCCUPATION_MAP[occupation],
         "Country": COUNTRY_MAP[country],
-        "Severity": SEVERITY_MAP[severity],
-        "Consultation_History": YES_NO_MAP[consultation_history],
+        "Depression_Score": depression_score,
+        "Anxiety_Score": anxiety_score,
         "Stress_Level": STRESS_MAP[stress_level],
         "Sleep_Hours": sleep_hours,
-        "Work_Hours": work_hours,
-        "Physical_Activity_Hours": physical_activity
+        "Physical_Activity": PHYSICAL_ACTIVITY_MAP[physical_activity],
+        "Chronic_Illness": YES_NO_MAP[chronic_illness],
+        "Mental_Health_History": YES_NO_MAP[mental_health_history],
+        "Treatment": TREATMENT_MAP[treatment],
+        "Days_of_Treatment": days_of_treatment,
+        "Work_Status": WORK_STATUS_MAP[work_status]
     }
 
     try:
@@ -176,7 +265,6 @@ if predict_btn:
         st.session_state.predictions_history.append(result)
 
         # Affichage du resultat
-        st.markdown("---")
         st.header("Resultat de la prediction")
 
         res_col1, res_col2, res_col3 = st.columns(3)
@@ -218,21 +306,31 @@ if predict_btn:
 
         # Interpretation des facteurs
         st.subheader("Interpretation des facteurs")
+
+        gad7_level = "minimal" if anxiety_score <= 4 else "leger" if anxiety_score <= 9 else "modere" if anxiety_score <= 14 else "severe"
+        phq9_level = "minimal" if depression_score <= 4 else "leger" if depression_score <= 9 else "modere" if depression_score <= 14 else "moderement severe" if depression_score <= 19 else "severe"
         st.markdown("""
         **Facteurs cles influencant cette prediction :**
-        - **Niveau de stress** : un stress {} peut augmenter significativement le risque
+        - **Score GAD-7 (anxiete)** : {} / 21 -- niveau {}
+        - **Score PHQ-9 (depression)** : {} / 27 -- niveau {}
+        - **Niveau de stress** : {}
         - **Heures de sommeil** : {:.1f}h/nuit ({})
-        - **Heures de travail** : {:.1f}h/semaine ({})
-        - **Historique de consultation** : {} consultation prealable
-        - **Severite des symptomes actuels** : {}
+        - **Activite physique** : {}
+        - **Maladie chronique** : {}
+        - **Antecedents de sante mentale** : {}
+        - **Traitement** : {} ({} jours)
+        - **Situation professionnelle** : {}
         """.format(
+            anxiety_score, gad7_level,
+            depression_score, phq9_level,
             stress_level,
             sleep_hours,
             "en dessous des recommandations" if sleep_hours < 7 else "adequat",
-            work_hours,
-            "au-dessus de la moyenne" if work_hours > 45 else "dans la normale",
-            "A eu une" if consultation_history == "Oui" else "Aucune",
-            severity
+            physical_activity,
+            chronic_illness,
+            mental_health_history,
+            treatment, days_of_treatment,
+            work_status
         ))
 
     except requests.exceptions.ConnectionError:
