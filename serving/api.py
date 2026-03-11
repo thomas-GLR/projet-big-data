@@ -25,12 +25,13 @@ DATA_DIR = "/data"
 RETRAIN_THRESHOLD = 10  # Retrain every k feedbacks
 
 # --- Feature definitions ---
-FEATURE_COLS = ["Age", "Gender", "Occupation", "Country", "Severity",
-                "Consultation_History", "Stress_Level", "Sleep_Hours",
-                "Work_Hours", "Physical_Activity_Hours"]
+FEATURE_COLS = ["Age", "Gender", "Country", "Anxiety_Score",
+                "Stress_Level", "Sleep_Hours", "Physical_Activity",
+                "Chronic_Illness", "Mental_Health_History", "Treatment",
+                "Days_of_Treatment", "Depression_Score", "Work_Status"]
 
-CATEGORICAL_COLS = ["Gender", "Occupation", "Country", "Severity",
-                    "Consultation_History", "Stress_Level"]
+CATEGORICAL_COLS = ["Gender", "Work_Status", "Country", "Anxiety_Score", "Treatment",
+                    "Mental_Health_History", "Stress_Level", "Chronic_Illness"]
 
 N_PCA_COMPONENTS = 5
 
@@ -43,21 +44,21 @@ model_lock = threading.Lock()
 
 
 def load_artifact(filename: str):
-    """Load a pickle artifact."""
+    # Load a pickle artifact
     filepath = os.path.join(ARTIFACTS_DIR, filename)
     with open(filepath, "rb") as f:
         return pickle.load(f)
 
 
 def save_artifact(obj, filename: str):
-    """Save a pickle artifact."""
+    # Save a pickle artifact
     filepath = os.path.join(ARTIFACTS_DIR, filename)
     with open(filepath, "wb") as f:
         pickle.dump(obj, f)
 
 
 def load_all_artifacts():
-    """Load all model artifacts into global variables."""
+    # Load all model artifacts into global variables
     global model, scaler, pca, label_encoders
     model = load_artifact("model.pkl")
     scaler = load_artifact("scaler.pkl")
@@ -68,7 +69,7 @@ def load_all_artifacts():
 
 @app.on_event("startup")
 def startup_event():
-    """Load artifacts on API startup."""
+    # Load artifacts on API startup
     load_all_artifacts()
     # Initialize prod_data.csv if it doesn't exist
     prod_path = os.path.join(DATA_DIR, "prod_data.csv")
@@ -85,14 +86,17 @@ def startup_event():
 class PredictionInput(BaseModel):
     Age: int
     Gender: str
-    Occupation: str
     Country: str
-    Severity: Optional[str] = "None"
-    Consultation_History: str
+    Depression_Score: int
+    Anxiety_Score: int
     Stress_Level: str
     Sleep_Hours: float
-    Work_Hours: float
-    Physical_Activity_Hours: int
+    Physical_Activity: str
+    Chronic_Illness: str
+    Mental_Health_History: str
+    Treatment: str
+    Days_of_Treatment: int
+    Work_Status: str
 
 
 class PredictionResponse(BaseModel):
@@ -117,9 +121,9 @@ class FeedbackResponse(BaseModel):
 
 # --- Helper functions ---
 def transform_input(data: dict) -> np.ndarray:
-    """Transform raw input through the preprocessing pipeline."""
+    # Transform raw input through the preprocessing pipeline.
     df = pd.DataFrame([data])
-    df["Severity"] = df["Severity"].fillna("None")
+    # Remove Severity column handling as it's not in our input
 
     for col in CATEGORICAL_COLS:
         if col in df.columns:
@@ -127,6 +131,7 @@ def transform_input(data: dict) -> np.ndarray:
             df[col] = df[col].astype(str).apply(
                 lambda x: le.transform([x])[0] if x in le.classes_ else -1
             )
+    print(df)
 
     X = df[FEATURE_COLS].values
     X_scaled = scaler.transform(X)
@@ -135,7 +140,7 @@ def transform_input(data: dict) -> np.ndarray:
 
 
 def retrain_model():
-    """Retrain the model on ref_data + prod_data and update artifacts."""
+    # Retrain the model on ref_data + prod_data and update artifacts.
     global model
 
     ref_path = os.path.join(DATA_DIR, "ref_data.csv")
@@ -190,12 +195,13 @@ def health_check():
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict(data: PredictionInput):
-    """
-    Predict mental health condition from input features.
-    Returns prediction, probabilities, and the embedding vector.
-    """
+    #Predict mental health condition from input features.
+    #Returns prediction, probabilities, and the embedding vector.
+    
     try:
         input_dict = data.model_dump()
+        print(f"data {data}")
+        print(f"Received prediction request: {input_dict}")
         X_embedded = transform_input(input_dict)
 
         with model_lock:
@@ -205,9 +211,9 @@ def predict(data: PredictionInput):
         return PredictionResponse(
             prediction=prediction,
             prediction_label="Yes" if prediction == 1 else "No",
-            probability_no=float(proba[0]),
-            probability_yes=float(proba[1]),
-            embedding=X_embedded[0].tolist()
+            probability_no= 0.5, #float(proba[0]),
+            probability_yes=0.5, #float(proba[1]),
+            embedding=[] #X_embedded[0].tolist()
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -215,10 +221,8 @@ def predict(data: PredictionInput):
 
 @app.post("/feedback", response_model=FeedbackResponse)
 def submit_feedback(data: FeedbackInput):
-    """
-    Submit user feedback (real label) for a prediction.
-    Triggers model retraining every RETRAIN_THRESHOLD feedbacks.
-    """
+    #Submit user feedback (real label) for a prediction.
+    #Triggers model retraining every RETRAIN_THRESHOLD feedbacks.
     try:
         prod_path = os.path.join(DATA_DIR, "prod_data.csv")
 
@@ -253,7 +257,7 @@ def submit_feedback(data: FeedbackInput):
 
 @app.get("/model-info")
 def model_info():
-    """Get information about the current model."""
+    #Get information about the current model.
     prod_path = os.path.join(DATA_DIR, "prod_data.csv")
     total_feedbacks = 0
     if os.path.exists(prod_path):
@@ -273,7 +277,7 @@ def model_info():
 
 
 class WebhookFeedbackInput(BaseModel):
-    """Feedback from n8n webhook (user clicks link in email)."""
+    # Feedback from n8n webhook (user clicks link in email).
     embedding: list
     prediction: int
     user_feedback: int
@@ -282,10 +286,8 @@ class WebhookFeedbackInput(BaseModel):
 
 @app.post("/webhook/feedback")
 def webhook_feedback(data: WebhookFeedbackInput):
-    """
-    Receive feedback from n8n AI agent webhook.
-    Called when user clicks the validation/correction link in their email.
-    """
+    #Receive feedback from n8n AI agent webhook.
+    #Called when user clicks the validation/correction link in their email.
     feedback_data = FeedbackInput(
         embedding=data.embedding,
         prediction=data.prediction,
@@ -301,10 +303,8 @@ def webhook_feedback(data: WebhookFeedbackInput):
 
 @app.get("/feedback-form")
 def feedback_form(embedding: str, prediction: int, email: str = ""):
-    """
-    Simple HTML feedback form accessible via link in email.
-    The user can confirm or correct the prediction.
-    """
+    #Simple HTML feedback form accessible via link in email.
+    #The user can confirm or correct the prediction.
     import json
     html = f"""
     <html>
@@ -319,7 +319,7 @@ def feedback_form(embedding: str, prediction: int, email: str = ""):
     </style>
     </head>
     <body>
-        <h1>🧠 Mental Health Prediction Feedback</h1>
+        <h1>Mental Health Prediction Feedback</h1>
         <div class="prediction">
             <p><strong>Our model predicted:</strong> {"Mental Health Condition Detected" if prediction == 1 else "No Mental Health Condition"}</p>
         </div>
@@ -329,10 +329,10 @@ def feedback_form(embedding: str, prediction: int, email: str = ""):
             <input type="hidden" name="prediction" value="{prediction}">
             <input type="hidden" name="user_email" value="{email}">
             <button type="button" class="btn btn-confirm" onclick="submitFeedback({prediction})">
-                ✅ Confirm Prediction
+                Confirm Prediction
             </button>
             <button type="button" class="btn btn-correct" onclick="submitFeedback({1 - prediction})">
-                ❌ Correct - It's {"No" if prediction == 1 else "Yes"}
+                Correct - It's {"No" if prediction == 1 else "Yes"}
             </button>
         </form>
         <script>
@@ -349,10 +349,10 @@ def feedback_form(embedding: str, prediction: int, email: str = ""):
                 }})
                 .then(r => r.json())
                 .then(data => {{
-                    document.body.innerHTML = '<h1>✅ Thank you!</h1><p>Your feedback has been recorded.</p><p>' + data.message + '</p>';
+                    document.body.innerHTML = '<h1>Thank you!</h1><p>Your feedback has been recorded.</p><p>' + data.message + '</p>';
                 }})
                 .catch(err => {{
-                    document.body.innerHTML = '<h1>❌ Error</h1><p>' + err + '</p>';
+                    document.body.innerHTML = '<h1>Error</h1><p>' + err + '</p>';
                 }});
             }}
         </script>
