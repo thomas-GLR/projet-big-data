@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
 
 np.set_printoptions(threshold=10000, suppress=True)
 import pickle
@@ -10,8 +12,10 @@ import matplotlib.pyplot as plt
 warnings.filterwarnings('ignore')
 from sklearn.preprocessing import LabelEncoder, TargetEncoder, StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.metrics import make_scorer, roc_auc_score, precision_score, recall_score, mean_absolute_error, r2_score
-from sklearn.model_selection import GridSearchCV, train_test_split, KFold, cross_val_score, cross_validate
+from sklearn.metrics import make_scorer, roc_auc_score, precision_score, recall_score, mean_absolute_error, r2_score, \
+    mean_squared_error, accuracy_score
+from sklearn.model_selection import GridSearchCV, train_test_split, KFold, cross_val_score, cross_validate, \
+    StratifiedKFold
 from sklearn.base import is_classifier, is_regressor
 
 # --- Constants ---
@@ -212,7 +216,6 @@ ANXIETY_OUTCOME = "anxiety_outcome"
 STRESS_OUTCOME = "stress_outcome"
 
 USELESS_COLUMNS = (
-        [f"Q{i}A" for i in range(1, 43)] +
         [f"Q{i}E" for i in range(1, 43)] +
         [f"Q{i}I" for i in range(1, 43)] +
         [
@@ -228,58 +231,103 @@ USELESS_COLUMNS = (
             ENGNAT,
             COUNTRY,
             UNIQUENETWORKLOCATION,
-            MAJOR # Not relevant because too much missing values
+            MAJOR, # Not relevant because too much missing values
+            # for the moment we only want to predict depression, but we could also predict anxiety and stress in the future
+            STRESS_OUTCOME,
+            ANXIETY_OUTCOME
         ] +
-        [f"VCL{i}" for i in range(1, 17)]
+        [f"VCL{i}" for i in range(1, 17)] +
+        [f"TIPI{i}" for i in range(1, 11)]
 )
 
-QUESTION_ANSWER_COLS = [f"Q{i}A" for i in range(1, 43)]
+DASS_ANSWER_QUESTION = [f"Q{i}A" for i in range(1, 43)]
 
-FEATURE_COLS = [AGE, GENDER, EDUCATION, URBAN, ENGNAT, HAND, RELIGION,
-                ORIENTATION, RACE, VOTED, MARRIED, FAMILYSIZE,
-                ANXIETY_SCORE, STRESS_SCORE]
+NUMERICAL_COLS = [AGE, FAMILYSIZE]
 
 CATEGORICAL_COLS = [GENDER, COUNTRY, EDUCATION, URBAN, ENGNAT, HAND,
                     RELIGION, ORIENTATION, RACE, VOTED, MARRIED]
 
-BINARY_COLS = []
+BINARY_COLS = [VOTED]
 
-COLUMNS_TO_ENCODE = [COUNTRY]
+COLUMNS_TO_ENCODE = [EDUCATION, URBAN, GENDER, HAND, RELIGION, ORIENTATION, RACE, MARRIED]
 
-TARGET_COL = DEPRESSION_SCORE
+TARGET_COL = DEPRESSION_OUTCOME
 
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RAW_DATA_DIR = os.path.join(ROOT_DIR, 'donnees_brut')
 
-def load_raw_data_without_useless_columns(filepath: str = None) -> pd.DataFrame:
+def load_raw_data_without_useless_columns(filepath: str = None, sep: str = "\t") -> pd.DataFrame:
     """Load the raw dataset without useless columns."""
     if filepath is None:
         filepath = DATASET_PATH
-    df = pd.read_csv(filepath, sep="\t")
+    df = pd.read_csv(filepath, sep=sep)
 
     return df
 
 
-def clean_dataset_and_save() -> None:
+def clean_dataset_and_save(file_name = 'dataset.csv', sep = ',') -> pd.DataFrame:
     """
+    Clean the raw dataset by applying the following filters:
+        - Remove rows if they answer the DASS-42 test less than 120 seconds
+        - Remove rows if they have VCL6, VCL9, or VCL12 equal to 1 (indicating they said that they know invented words)
+        - Remove rows if they have a variance of their answers to the 42 questions less than 0.05 (indicating they answered almost the same to all questions)
+        - Remove rows if they have age less than 17 (DASS-42 is a test for adult or old adolescent) or greater than 90 (indicating they probably made a mistake in their age)
 
+        Then calculate the DASS-42 scores for depression, anxiety, and stress, and generate the corresponding labels.
+        Finally, save the cleaned dataset to '../donnees_brut/dataset.csv'.
     """
     df = load_raw_data_without_useless_columns("../donnees_brut/data.csv")
 
-    print(f"Le dataset comporte {df.shape[0]} lignes et {df.shape[1]} colonnes avant nettoyage.")
+    print(f"Le dataset comporte {df.shape[0]} lignes et {df.shape[1]} colonnes avant nettoyage et génération des labels.")
 
+    print(f"Deleting {df[df['testelapse'] <= 120].shape} rows with testelapse less than 120 seconds")
     # Remove rows if they answer the test less than 120 seconds
     df = df[df["testelapse"] > 120]
 
+
+    print(f"Deleting {df[(df['VCL6'] == 1) & (df['VCL9'] == 1) & (df['VCL12'] == 1)].shape} rows with VCL6, VCL9, or VCL12 equal to 1")
     # Remove rows if they have VCL6, VCL9, or VCL12 equal to 1 (indicating they said that they know invented words)
     df = df[(df["VCL6"] == 0) & (df["VCL9"] == 0) & (df["VCL12"] == 0)]
 
     # Remove rows if they have a variance of their answers to the 42 questions less than 0.05 (indicating they answered almost the same to all questions)
     df["variance"] = df[[f"Q{i}A" for i in range(1, 43)]].var(axis=1)
 
+    print(f"Deleting {df[df['variance'] <= 0.05].shape} rows with variance of their answers to the 42 questions less than 0.05")
     df = df[df["variance"] > 0.05]
 
-    df = df[(df["age"] <= 90)]
+    print(f"Deleting {df[(df['age'] < 17) & (df['age'] > 90)].shape} rows with age less than 17 or greater than 90")
+    # The dass-42 test is for adults or old adolescents (17+), so remove rows if they have age less than 17 or greater than 90 (indicating they probably made a mistake in their age)
+    df = df[(df["age"] >= 17) & (df["age"] <= 90)]
 
-    print(f"Le dataset comporte {df.shape[0]} lignes et {df.shape[1]} colonnes après nettoyage.")
+    print(f"Deleting {df[(df['gender'] == 0) & (df['gender'] > 3)].shape} rows with gender less than 1 or greater than 3")
+    # Some rows have 0 but it's not a possible value for (1=Male, 2=Female, 3=Other)
+    df = df[(df["gender"] > 0) & (df["gender"] <= 3)]
+
+    # The answers to the DASS-42 questions are from 1 to 4, but we want them from 0 to 3 to calculate the scores and labels more easily
+    df[[f"Q{i}A" for i in range(1, 43)]] = df[[f"Q{i}A" for i in range(1, 43)]] - 1
+
+    generate_labels(df)
+
+
+    print(f"Le dataset comporte {df.shape[0]} lignes et {df.shape[1]} colonnes après nettoyage et génération des labels.")
+
+    dataset_path = os.path.join(RAW_DATA_DIR, file_name)
+
+    print(f"Saving cleaned dataset to {dataset_path}")
+    df.to_csv(dataset_path, sep=sep, index=False)
+
+    return df
+
+
+def generate_labels(df):
+    """
+    Explication of DASS-42 scores and labels:
+    Depression – Normal (0 to 9), Mild (10 to 13), Moderate, (14 to 20), Severe (21 to 27), Extremely Severe (28 and above)
+    Anxiety – Normal (0 to 7), Mild (8 to 9), Moderate, (10 to 14), Severe (15 to 19), Extremely Severe (20 and above)
+    Stress – Normal (0 to 14), Mild (15 to 18), Moderate, (19 to 25), Severe (26 to 33), Extremely Severe (34 and above)
+
+    https://novopsych.com/assessments/depression/depression-anxiety-stress-scales-long-form-dass-42/
+    """
 
     depression_items = ["Q3A", "Q5A", "Q10A", "Q13A", "Q16A", "Q17A", "Q21A",
                         "Q24A", "Q26A", "Q31A", "Q34A", "Q37A", "Q38A", "Q42A"]
@@ -290,48 +338,35 @@ def clean_dataset_and_save() -> None:
     stress_items = ["Q1A", "Q6A", "Q8A", "Q11A", "Q12A", "Q14A", "Q18A",
                     "Q22A", "Q27A", "Q29A", "Q32A", "Q33A", "Q35A", "Q39A"]
 
-    # The DASS-21 scores are calculated by summing the scores for the relevant items,
-    # subtracting the number of items (to adjust for the minimum score),
-    # and then dividing by the maximum possible score (number of items * 3) to get a score between 0 and 1.
-    df["depression_score"] = df[depression_items].sub(1).sum(axis=1) / (len(depression_items) * 3)
+    df["depression_score"] = df[depression_items].sum(axis=1)
+    df["anxiety_score"] = df[anxiety_items].sum(axis=1)
+    df["stress_score"] = df[stress_items].sum(axis=1)
 
-    df["anxiety_score"] = df[anxiety_items].sub(1).sum(axis=1) / (len(anxiety_items) * 3)
-
-    df["stress_score"] = df[stress_items].sub(1).sum(axis=1) / (len(stress_items) * 3)
-
-    generate_label(df)
-
-    df.to_csv('../donnees_brut/dataset.csv', index=False)
-
-
-def generate_label(df):
-    # https://novopsych.com/assessments/depression/depression-anxiety-stress-scales-long-form-dass-42/
-    # Normal = percentile 0 – 78
-    # Mild = 79 – 87
-    # Moderate = 88 – 95
-    # Severe = 95 – 98
-    # Extremely Severe = 98.1 and above
-
-    percentage = {
-        0: 0.78,
-        1: 0.87,
-        2: 0.95,
-        3: 0.98,
-        4: 1.0
+    score_depression = {
+        0: 9,
+        1: 13,
+        2: 20,
+        3: 27
+    }
+    score_anixety = {
+        0: 7,
+        1: 9,
+        2: 14,
+        3: 19
+    }
+    score_stress = {
+        0: 14,
+        1: 18,
+        2: 25,
+        3: 33
     }
 
     df["depression_outcome"] = df["depression_score"].apply(
-        lambda x: 0 if x <= percentage[0] else 1 if x <= percentage[1] else 2 if x <= percentage[2] else 3 if x <=
-                                                                                                              percentage[
-                                                                                                                  3] else 4)
+        lambda x: 0 if x <= score_depression[0] else 1 if x <= score_depression[1] else 2 if x <= score_depression[2] else 3 if x <= score_depression[3] else 4)
     df["anxiety_outcome"] = df["anxiety_score"].apply(
-        lambda x: 0 if x <= percentage[0] else 1 if x <= percentage[1] else 2 if x <= percentage[2] else 3 if x <=
-                                                                                                              percentage[
-                                                                                                                  3] else 4)
+        lambda x: 0 if x <= score_anixety[0] else 1 if x <= score_anixety[1] else 2 if x <= score_anixety[2] else 3 if x <= score_anixety[3] else 4)
     df["stress_outcome"] = df["stress_score"].apply(
-        lambda x: 0 if x <= percentage[0] else 1 if x <= percentage[1] else 2 if x <= percentage[2] else 3 if x <=
-                                                                                                              percentage[
-                                                                                                                  3] else 4)
+        lambda x: 0 if x <= score_stress[0] else 1 if x <= score_stress[1] else 2 if x <= score_stress[2] else 3 if x <= score_stress[3] else 4)
 
 
 def target_encoding(df: pd.DataFrame) -> pd.DataFrame:
@@ -342,6 +377,16 @@ def target_encoding(df: pd.DataFrame) -> pd.DataFrame:
     # {'Poor': 0, 'Fair': 1, 'Good': 2, 'Excellent': 3}
     df[TARGET_COL] = df[TARGET_COL].map(order_map)
     return df
+
+
+def remove_useless_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove useless columns from the DataFrame."""
+    return df.drop(columns=USELESS_COLUMNS)
+
+
+def get_data_for_mrmr(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Get the features and target for mRMR feature selection."""
+    return df[DASS_ANSWER_QUESTION], df[TARGET_COL]
 
 
 def encode_categorical_columns(df: pd.DataFrame, target_encoder_columns=None, binary_columns=None) -> pd.DataFrame:
@@ -370,24 +415,24 @@ def encode_categorical_columns(df: pd.DataFrame, target_encoder_columns=None, bi
     # Full dummies (drop_first=False) create redundant columns where one is predictable from others, causing perfect multicollinearity.
     # PCA amplifies this by producing near-zero variance components, and linear classifiers (e.g., logistic regression) suffer unstable coefficients.
     # Tree-based classifiers (e.g., Random Forest) tolerate it but benefit from fewer features.
-    df = pd.get_dummies(df, columns=target_encoder_columns, drop_first=True)
+    # df = pd.get_dummies(df, columns=target_encoder_columns, drop_first=True)
 
-    # target_encoder = TargetEncoder(target_type="multiclass", smooth="auto")
-    #
-    # Y = get_target(df)
-    # unique_labels = sorted(np.unique(Y))  # ['Excellent', 'Fair', 'Good', 'Poor']
-    #
-    # encoded = target_encoder.fit_transform(df[target_encoder_columns], Y)
-    #
-    # new_cols = [
-    #     f"{col}_{label}"
-    #     for col in target_encoder_columns
-    #     for label in unique_labels
-    # ]
-    #
-    # encoded_df = pd.DataFrame(encoded, columns=new_cols, index=df.index)
-    # df = df.drop(columns=target_encoder_columns)
-    # df = pd.concat([df, encoded_df], axis=1)
+    target_encoder = TargetEncoder(target_type="multiclass", smooth="auto")
+
+    Y = get_target(df)
+    unique_labels = sorted(np.unique(Y))  # ['Excellent', 'Fair', 'Good', 'Poor']
+
+    encoded = target_encoder.fit_transform(df[target_encoder_columns], Y)
+
+    new_cols = [
+        f"{col}_{label}"
+        for col in target_encoder_columns
+        for label in unique_labels
+    ]
+
+    encoded_df = pd.DataFrame(encoded, columns=new_cols, index=df.index)
+    df = df.drop(columns=target_encoder_columns)
+    df = pd.concat([df, encoded_df], axis=1)
 
     return df
 
@@ -465,11 +510,6 @@ def create_ref_data(raw_filepath: str, output_filepath: str, n_pca_components: i
     return ref_df, label_encoders, scaler, pca
 
 
-def normalisation_donnes(X: np.ndarray) -> np.ndarray:
-    scaler = StandardScaler()
-    return scaler.fit_transform(X)
-
-
 def pca(X: np.ndarray, Y: np.ndarray, columns_label: list[str], n_components: float) -> PCA:
     # Labels of row so the target
     rows_label = Y.tolist()
@@ -533,7 +573,7 @@ def pca(X: np.ndarray, Y: np.ndarray, columns_label: list[str], n_components: fl
     plt.tight_layout()
     plt.show()
 
-    color_map = {"Excellent": 'red', "Fair": 'blue', "Good": 'green', "Poor": 'orange'}
+    color_map = {0: 'red', 1: 'blue', 2: 'green', 3: 'orange', 4: 'purple'}
 
     plt.figure(figsize=(40, 20))
     plt.scatter(X_pca[:, 0], X_pca[:, 1], c=[color_map[label] for label in rows_label])
@@ -591,16 +631,21 @@ def run_classifiers_cv(
             average="macro",
             zero_division=0
         ),
+        "f1_macro": "f1_macro",
+        "balanced_accuracy": "balanced_accuracy"
     }
 
-    kf = KFold(n_splits=nombre_fold, shuffle=True, random_state=0)
+    kf = StratifiedKFold(n_splits=nombre_fold, shuffle=True, random_state=0)
     for nom_model, clf in clfs_par_nom.items():
+        print(f"Cross-validation pour {nom_model}...")
         resultats = cross_validate(clf, X, Y, cv=kf, scoring=scoring)
 
         accuracy = resultats["test_accuracy"]
         auc = resultats["test_roc_auc"]
         precision = resultats["test_precision"]
         recall = resultats["test_recall"]
+        f1_macro = resultats["test_f1_macro"]
+        balanced_accuracy = resultats["test_balanced_accuracy"]
 
         score_time = resultats["score_time"]
 
@@ -615,6 +660,10 @@ def run_classifiers_cv(
             precision.std(),
             recall.mean(),
             recall.std(),
+            f1_macro.mean(),
+            f1_macro.std(),
+            balanced_accuracy.mean(),
+            balanced_accuracy.std(),
             score_time.mean()
         ])
 
@@ -629,6 +678,10 @@ def run_classifiers_cv(
         "Précision écart type",
         "Recall moyen",
         "Recall écart type",
+        "f1_macro moyen",
+        "f1_macro écart type",
+        "balanced_accuracy moyen",
+        "balanced_accuracy écart type",
         "Temps moyen par fold"
     ]
 
@@ -645,7 +698,7 @@ def run_classifiers_cv(
 def run_classifiers_cv_clfs_rgs(clfs_par_nom, X, Y):
     cv_scores_par_nom_model = {}
     result_from_all_model = []
-    nombre_fold = 10
+    nombre_fold = 5
     kf = KFold(n_splits=nombre_fold, shuffle=True, random_state=0)
 
     # Détecter le type de modèle à partir du premier modèle
@@ -656,10 +709,8 @@ def run_classifiers_cv_clfs_rgs(clfs_par_nom, X, Y):
         scoring = {
             "mae": make_scorer(mean_absolute_error, greater_is_better=False),
             "r2": "r2",
-            "rmse": make_scorer(
-                lambda y_true, y_pred: np.sqrt(np.mean((y_true - y_pred) ** 2)),
-                greater_is_better=False
-            ),
+            "rmse": make_scorer(lambda y, y_pred: np.sqrt(mean_squared_error(y, y_pred)),
+                        greater_is_better=False),
         }
         columns = [
             "MAE moyenne", "MAE écart type",
@@ -689,42 +740,244 @@ def run_classifiers_cv_clfs_rgs(clfs_par_nom, X, Y):
 
     for nom_model, clf in clfs_par_nom.items():
         print(f"Cross-validation pour {nom_model}...")
-        resultats = cross_validate(clf, X, Y, cv=kf, scoring=scoring)
-        score_time = resultats["score_time"]
+        # resultats = cross_validate(clf, X, Y, cv=kf, scoring=scoring)
+
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),  # fit seulement sur le train fold
+            ('clf',clf)
+        ])
+
+        resultats = cross_validate(pipeline, X, Y, cv=kf, scoring=scoring, return_train_score=True)
+
+        print(f"\tTrain MAE  : {-resultats['train_mae'].mean():.4f} ± {resultats['train_mae'].std():.4f}")
+        print(f"\tTrain RMSE : {-resultats['train_rmse'].mean():.4f} ± {resultats['train_rmse'].std():.4f}")
+        print(f"\tTrain R²   : {resultats['train_r2'].mean():.4f} ± {resultats['train_r2'].std():.4f}")
+
+        print(f"\tTest MAE  : {-resultats['test_mae'].mean():.4f} ± {resultats['test_mae'].std():.4f}")
+        print(f"\tTest RMSE : {-resultats['test_rmse'].mean():.4f} ± {resultats['test_rmse'].std():.4f}")
+        print(f"\tTest R²   : {resultats['test_r2'].mean():.4f} ± {resultats['test_r2'].std():.4f}")
+        print(f"\tTemps par fold : {resultats['score_time'].mean()}")
+
+        # score_time = resultats["score_time"]
+        #
+        # if is_regression:
+        #     mae = np.abs(resultats["test_mae"])
+        #     rmse = np.abs(resultats["test_rmse"])
+        #     r2 = resultats["test_r2"]
+        #
+        #     cv_scores_par_nom_model[nom_model] = r2.mean()
+        #
+        #     result_from_all_model.append([
+        #         mae.mean(), mae.std(),
+        #         rmse.mean(), rmse.std(),
+        #         r2.mean(), r2.std(),
+        #         score_time.mean()
+        #     ])
+        # else:
+        #     accuracy = resultats["test_accuracy"]
+        #     auc = resultats["test_roc_auc"]
+        #     precision = resultats["test_precision"]
+        #     recall = resultats["test_recall"]
+        #
+        #     cv_scores_par_nom_model[nom_model] = np.mean(accuracy)
+        #
+        #     result_from_all_model.append([
+        #         accuracy.mean(), accuracy.std(),
+        #         auc.mean(), auc.std(),
+        #         precision.mean(), precision.std(),
+        #         recall.mean(), recall.std(),
+        #         score_time.mean()
+        #     ])
+
+    # rows = list(clfs_par_nom.keys())
+    # df = pd.DataFrame(result_from_all_model, columns=columns, index=rows)
+    # print(df)
+
+    # best_model, score_final_max = max(cv_scores_par_nom_model.items(), key=lambda kv: kv[1])
+
+    # return best_model, score_final_max
+
+
+def run_classifiers_cv_clfs_rgs_with_hold_out(clfs_par_nom, X, Y, holdout_size=0.15):
+    cv_scores_par_nom_model = {}
+    result_from_all_model = []
+    nombre_fold = 5
+
+    # --- Séparation hold-out AVANT tout traitement ---
+    X_dev, X_holdout, Y_dev, Y_holdout = train_test_split(
+        X, Y,
+        test_size=holdout_size,
+        random_state=0,
+        stratify=Y  # retire stratify=Y si régression pure sur valeurs continues
+    )
+    print(f"Taille dev : {X_dev.shape[0]} | Taille hold-out : {X_holdout.shape[0]}\n")
+
+    kf = KFold(n_splits=nombre_fold, shuffle=True, random_state=0)
+
+    # Détecter le type de modèle à partir du premier modèle
+    first_clf = next(iter(clfs_par_nom.values()))
+    is_regression = is_regressor(first_clf)
+
+    if is_regression:
+        scoring = {
+            "mae": make_scorer(mean_absolute_error, greater_is_better=False),
+            "r2": "r2",
+            "rmse": make_scorer(lambda y, y_pred: np.sqrt(mean_squared_error(y, y_pred)),
+                        greater_is_better=False),
+        }
+        columns = [
+            "MAE moyenne", "MAE écart type",
+            "RMSE moyenne", "RMSE écart type",
+            "R² moyen", "R² écart type",
+            "Temps moyen par fold",
+            "Holdout MAE", "Holdout RMSE", "Holdout R²"  # <-- colonnes holdout
+        ]
+    else:
+        scoring = {
+            "accuracy": "accuracy",
+            "roc_auc": make_scorer(
+                roc_auc_score,
+                multi_class="ovr",
+                average="macro",
+                needs_proba=True
+            ),
+            "precision": make_scorer(precision_score, average="macro", zero_division=0),
+            "recall": make_scorer(recall_score, average="macro", zero_division=0),
+        }
+        columns = [
+            "Accuracy moyenne", "Accuracy écart type",
+            "AUC moyenne", "AUC écart type",
+            "Précision moyenne", "Précision écart type",
+            "Recall moyen", "Recall écart type",
+            "Temps moyen par fold",
+            "Holdout Accuracy", "Holdout AUC"  # <-- colonnes holdout
+        ]
+
+    for nom_model, clf in clfs_par_nom.items():
+        print(f"Cross-validation pour {nom_model}...")
+
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('clf', clf)
+        ])
+
+        # --- Cross-validation sur X_dev uniquement ---
+        resultats = cross_validate(pipeline, X_dev, Y_dev, cv=kf, scoring=scoring, return_train_score=True)
 
         if is_regression:
-            mae = np.abs(resultats["test_mae"])
-            rmse = np.abs(resultats["test_rmse"])
-            r2 = resultats["test_r2"]
+            print(f"\tTrain MAE  : {-resultats['train_mae'].mean():.4f} ± {resultats['train_mae'].std():.4f}")
+            print(f"\tTrain RMSE : {-resultats['train_rmse'].mean():.4f} ± {resultats['train_rmse'].std():.4f}")
+            print(f"\tTrain R²   : {resultats['train_r2'].mean():.4f} ± {resultats['train_r2'].std():.4f}")
+            print(f"\tTest MAE   : {-resultats['test_mae'].mean():.4f} ± {resultats['test_mae'].std():.4f}")
+            print(f"\tTest RMSE  : {-resultats['test_rmse'].mean():.4f} ± {resultats['test_rmse'].std():.4f}")
+            print(f"\tTest R²    : {resultats['test_r2'].mean():.4f} ± {resultats['test_r2'].std():.4f}")
+        else:
+            print(f"\tTrain Accuracy : {resultats['train_accuracy'].mean():.4f} ± {resultats['train_accuracy'].std():.4f}")
+            print(f"\tTest Accuracy  : {resultats['test_accuracy'].mean():.4f} ± {resultats['test_accuracy'].std():.4f}")
 
-            cv_scores_par_nom_model[nom_model] = r2.mean()
+        # --- Entraînement final sur tout X_dev + éval holdout ---
+        pipeline.fit(X_dev, Y_dev)
+        print(f"\n\t--- Évaluation Hold-out ({holdout_size*100:.0f}%) ---")
 
+        if is_regression:
+            Y_pred_holdout = pipeline.predict(X_holdout)
+            h_mae  = mean_absolute_error(Y_holdout, Y_pred_holdout)
+            h_rmse = np.sqrt(mean_squared_error(Y_holdout, Y_pred_holdout))
+            h_r2   = pipeline.score(X_holdout, Y_holdout)
+
+            print(f"\tHoldout MAE  : {h_mae:.4f}  (CV : {-resultats['test_mae'].mean():.4f})")
+            print(f"\tHoldout RMSE : {h_rmse:.4f}  (CV : {-resultats['test_rmse'].mean():.4f})")
+            print(f"\tHoldout R²   : {h_r2:.4f}  (CV : {resultats['test_r2'].mean():.4f})")
+
+            # Alerte si écart CV/holdout trop grand
+            if abs(h_r2 - resultats['test_r2'].mean()) > 0.05:
+                print(f"\t⚠️  Écart R² CV/Holdout > 0.05 — leakage ou overfitting possible !")
+            else:
+                print(f"\t✅ Écart CV/Holdout faible — pas de leakage détecté")
+
+            cv_scores_par_nom_model[nom_model] = resultats['test_r2'].mean()
             result_from_all_model.append([
-                mae.mean(), mae.std(),
-                rmse.mean(), rmse.std(),
-                r2.mean(), r2.std(),
-                score_time.mean()
+                -resultats['test_mae'].mean(), resultats['test_mae'].std(),
+                -resultats['test_rmse'].mean(), resultats['test_rmse'].std(),
+                resultats['test_r2'].mean(), resultats['test_r2'].std(),
+                resultats['score_time'].mean(),
+                h_mae, h_rmse, h_r2
             ])
         else:
-            accuracy = resultats["test_accuracy"]
-            auc = resultats["test_roc_auc"]
-            precision = resultats["test_precision"]
-            recall = resultats["test_recall"]
+            Y_pred_holdout = pipeline.predict(X_holdout)
+            Y_proba_holdout = pipeline.predict_proba(X_holdout)
+            h_accuracy = accuracy_score(Y_holdout, Y_pred_holdout)
+            h_auc = roc_auc_score(Y_holdout, Y_proba_holdout, multi_class="ovr", average="macro")
 
-            cv_scores_par_nom_model[nom_model] = np.mean(accuracy)
+            print(f"\tHoldout Accuracy : {h_accuracy:.4f}  (CV : {resultats['test_accuracy'].mean():.4f})")
+            print(f"\tHoldout AUC      : {h_auc:.4f}  (CV : {resultats['test_roc_auc'].mean():.4f})")
 
+            if abs(h_accuracy - resultats['test_accuracy'].mean()) > 0.05:
+                print(f"\t⚠️  Écart Accuracy CV/Holdout > 0.05 — leakage ou overfitting possible !")
+            else:
+                print(f"\t✅ Écart CV/Holdout faible — pas de leakage détecté")
+
+            cv_scores_par_nom_model[nom_model] = resultats['test_accuracy'].mean()
             result_from_all_model.append([
-                accuracy.mean(), accuracy.std(),
-                auc.mean(), auc.std(),
-                precision.mean(), precision.std(),
-                recall.mean(), recall.std(),
-                score_time.mean()
+                resultats['test_accuracy'].mean(), resultats['test_accuracy'].std(),
+                resultats['test_roc_auc'].mean(), resultats['test_roc_auc'].std(),
+                resultats['test_precision'].mean(), resultats['test_precision'].std(),
+                resultats['test_recall'].mean(), resultats['test_recall'].std(),
+                resultats['score_time'].mean(),
+                h_accuracy, h_auc
             ])
+
+        print()
 
     rows = list(clfs_par_nom.keys())
     df = pd.DataFrame(result_from_all_model, columns=columns, index=rows)
     print(df)
 
     best_model, score_final_max = max(cv_scores_par_nom_model.items(), key=lambda kv: kv[1])
+    return best_model, score_final_max, df
 
-    return best_model, score_final_max
+
+def importance_variables(X, Y, nom_cols):
+    clf = RandomForestClassifier(n_estimators=1000, random_state=1)
+    clf.fit(X, Y)
+    importances = clf.feature_importances_
+    std = np.std([tree.feature_importances_ for tree in clf.estimators_], axis=0)
+    sorted_idx = np.argsort(importances)[::-1]
+    features = nom_cols
+
+    features_variables = []
+    for index in sorted_idx:
+        features_variables.append(features[index])
+
+    print(features_variables)
+
+    padding = np.arange(X.size / len(X)) + 0.5
+
+    plt.barh(padding, importances[sorted_idx], xerr=std[sorted_idx], align='center')
+    plt.yticks(padding, features_variables)
+    plt.xlabel("Relative Importance")
+    plt.title("Variable Importance")
+    plt.show()
+
+    return sorted_idx
+
+
+# def selection_nombre_optimal_variables(Xtrain, Ytrain, Xtest, Ytest, sorted_idx):
+#     model = MLPClassifier(hidden_layer_sizes=(40, 20), random_state=1)
+#
+#     scores = np.zeros(Xtrain.shape[1])
+#     for f in np.arange(0, Xtrain.shape[1]):
+#         X1_f = Xtrain[:, sorted_idx[:f + 1]]
+#         X2_f = Xtest[:, sorted_idx[:f + 1]]
+#
+#         model.fit(X1_f, Ytrain)
+#         y_model = model.predict(X2_f)
+#
+#         scores[f] = np.round(metrics.accuracy_score(Ytest, y_model), 3)
+#
+#     plt.plot(scores)
+#     plt.xlabel("Nombre de Variables")
+#     plt.ylabel("Accuracy")
+#     plt.title("Evolution de l'accuracy en fonction des variables")
+#     plt.show()
+
