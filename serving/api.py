@@ -39,8 +39,8 @@ N_PCA_COMPONENTS = 5
 # --- Global model variables (loaded at startup) ---
 model = None
 scaler = None
-pca = None
 label_encoders = None
+target_encoder = None
 model_lock = threading.Lock()
 
 
@@ -60,10 +60,10 @@ def save_artifact(obj, filename: str):
 
 def load_all_artifacts():
     """Load all model artifacts into global variables."""
-    global model, scaler, pca, label_encoders
+    global model, scaler, pca, label_encoders, target_encoder
     model = load_artifact("model.pkl")
     scaler = load_artifact("scaler.pkl")
-    pca = load_artifact("pca.pkl")
+    target_encoder = load_artifact("target_encoder.pkl")
     label_encoders = load_artifact("label_encoders.pkl")
     print("All artifacts loaded successfully.")
 
@@ -116,7 +116,7 @@ class PredictionResponse(BaseModel):
 class FeedbackInput(BaseModel):
     embedding: list
     prediction: int
-    user_feedback: int  # 0 = No, 1 = Yes (real label from user)
+    user_feedback: int  # classe
 
 
 class FeedbackResponse(BaseModel):
