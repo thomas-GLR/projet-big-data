@@ -10,95 +10,97 @@ from datetime import datetime
 API_URL = "http://serving-api:8080"
 N8N_WEBHOOK_URL = "http://n8n:5678/webhook/notify-user"
 
-# Traductions (francais -> anglais pour l'API)
-GENDER_MAP = {
-    "Homme": "Male", 
-    "Femme": "Female"
+# Questions DASS-42 (éléments sélectionnés)
+DASS42_QUESTIONS = {
+    "Q3A": "Je n'arrivais pas à ressentir aucun sentiment positif du tout",
+    "Q10A": "J'avais l'impression que je n'avais rien à attendre de l'avenir",
+    "Q13A": "Je me sentais triste et déprimé",
+    "Q16A": "J'avais l'impression d'avoir perdu l'intérêt pour presque tout",
+    "Q26A": "Je me sentais le cœur lourd et mélancolique",
+    "Q34A": "J'avais l'impression d'être rather sans valeur",
+    "Q37A": "Je ne voyais rien dans l'avenir auquel j'aurais pu m'accrocher",
+    "Q38A": "J'avais l'impression que la vie était sans sens"
 }
 
-COUNTRY_MAP = {
-    "Etats-Unis": "United States", 
-    "Inde": "India", 
-    "Canada": "Canada",
-    "Royaume-Uni": "United Kingdom", 
-    "Allemagne": "Germany",
-    "Australie": "Australia", 
-    "Afrique du Sud": "South Africa",
-    "Japon": "Japan", 
-    "Bresil": "Brazil", 
-    "France": "France"
+DASS42_OPTIONS = {
+    "Ne s'appliquait pas du tout à moi": 0,
+    "S'appliquait à moi dans une certaine mesure, ou à certains moments": 1, 
+    "S'appliquait à moi dans une grande mesure, ou pendant une bonne partie du temps": 2,
+    "S'appliquait à moi beaucoup, ou la plupart du temps": 3
 }
 
-STRESS_MAP = {
-    "Faible": "Low", 
-    "Moyen": "Medium", 
-    "Eleve": "High", 
-    "Severe": "Severe"
+# Mappages des champs démographiques avec labels
+EDUCATION_OPTIONS = {
+    "Moins que le secondaire": 1,
+    "Secondaire": 2,
+    "Diplôme universitaire": 3,
+    "Diplôme d'études supérieures": 4
 }
 
-YES_NO_MAP = {
-    "Oui": "Yes", 
-    "Non": "No"
+URBAN_OPTIONS = {
+    "En campagne": 1,
+    "Banlieue": 2,
+    "Zone urbaine (ville, centre-ville)": 3
 }
 
-PHYSICAL_ACTIVITY_MAP = {
-    "Faible": "Low", 
-    "Moderee": "Moderate", 
-    "Elevee": "High"
+GENDER_OPTIONS = {
+    "Homme": 1,
+    "Femme": 2,
+    "Autre": 3
 }
 
-TREATMENT_MAP = {
-    "Therapie": "Therapy", 
-    "Medicaments": "Medication", 
-    "Les deux": "Both", 
-    "Aucun": None
+HAND_OPTIONS = {
+    "Droitier": 1,
+    "Gaucher": 2,
+    "Ambidextre": 3
 }
 
-WORK_STATUS_MAP = {
-    "Employe": "Employed", 
-    "Sans emploi": "Unemployed", 
-    "Etudiant": "Student", 
-    "Retraite": "Retired"
+RELIGION_OPTIONS = {
+    "Agnostique": 1,
+    "Athée": 2,
+    "Bouddhiste": 3,
+    "Chrétien (Catholique)": 4,
+    "Chrétien (Mormon)": 5,
+    "Chrétien (Protestant)": 6,
+    "Chrétien (Autre)": 7,
+    "Hindou": 8,
+    "Juif": 9,
+    "Musulman": 10,
+    "Sikh": 11,
+    "Autre": 12
 }
 
-GAD7_OPTIONS = {
-    "Jamais": 0,
-    "Plusieurs jours": 1,
-    "Plus de la moitie des jours": 2,
-    "Presque tous les jours": 3
+ORIENTATION_OPTIONS = {
+    "Hétérosexuel": 1,
+    "Bisexuel": 2,
+    "Homosexuel": 3,
+    "Asexuel": 4,
+    "Autre": 5
 }
 
-GAD7_QUESTIONS = [
-    "Se sentir nerveux(se), anxieux(se) ou a cran",
-    "Ne pas etre capable d'arreter de s'inquieter ou de controler ses inquietudes",
-    "S'inquieter de maniere excessive a propos de differentes choses",
-    "Avoir du mal a se detendre",
-    "Etre si agite(e) qu'il est difficile de rester assis(e)",
-    "Devenir facilement contrarie(e) ou irritable",
-    "Avoir peur que quelque chose de terrible puisse arriver"
-]
-
-PHQ9_OPTIONS = {
-    "Jamais": 0,
-    "Plusieurs jours": 1,
-    "Plus de la moitie des jours": 2,
-    "Presque tous les jours": 3
+RACE_OPTIONS = {
+    "Asiatique": 10,
+    "Arabe": 20,
+    "Noir": 30,
+    "Australien Autochtone": 40,
+    "Amérindien": 50,
+    "Blanc": 60,
+    "Autre": 70
 }
 
-PHQ9_QUESTIONS = [
-    "Peu d'interet ou de plaisir a faire les choses",
-    "Se sentir triste, deprimé(e) ou sans espoir",
-    "Avoir du mal a s'endormir ou a rester endormi(e), ou dormir trop",
-    "Se sentir fatigué(e) ou n'avoir aucune energie",
-    "Avoir un appétit diminué ou excessif",
-    "Se sentir mal dans sa peau - ou que l'on est un échec ou que l'on a déçu sa famille",
-    "Avoir du mal à se concentrer sur des choses comme lire le journal ou regarder la télévision",
-    "Parler ou bouger si lentement que les autres pourraient l'avoir remarqué, ou être tellement agité(e) que vous bougez beaucoup plus que d'habitude",
-    "Avoir des pensées que vous seriez mieux mort(e) ou de vous faire du mal d'une manière ou d'une autre"
-]
+VOTED_OPTIONS = {
+    "Oui": 1,
+    "Non": 2
+}
+
+MARRIED_OPTIONS = {
+    "Jamais marié": 1,
+    "Actuellement marié": 2,
+    "Précédemment marié": 3
+}
 
 st.set_page_config(
-    page_title="Prediction Sante Mentale",
+    page_title="Prédiction Santé Mentale",
     layout="wide"
 )
 
@@ -111,121 +113,140 @@ if "last_prediction" not in st.session_state:
 
 # Sidebar
 with st.sidebar:
-    st.header("Statut du systeme")
+    st.header("Statut du Système")
     try:
         health = requests.get(f"{API_URL}/health", timeout=5).json()
         st.success(f"Statut API : {health['status']}")
 
         model_info = requests.get(f"{API_URL}/model-info", timeout=5).json()
         st.metric("Total retours", model_info.get("total_feedbacks", 0))
-        st.metric("Prochain re-entrainement", model_info.get("next_retrain_at", "N/A"))
-        st.metric("Type de modele", model_info.get("model_type", "N/A"))
+        st.metric("Prochain réentraînement", model_info.get("next_retrain_at", "N/A"))
+        st.metric("Type du modèle", model_info.get("model_type", "N/A"))
     except Exception as e:
         st.error(f"API non joignable : {e}")
 
-    st.header("Historique des predictions")
+    st.header("Historique des Prédictions")
     if st.session_state.predictions_history:
         hist_df = pd.DataFrame(st.session_state.predictions_history)
-        # Distribution des predictions
+        # Distribution des prédictions
         fig_hist = px.histogram(
             hist_df, x="prediction_label",
             color="prediction_label",
-            title="Distribution des predictions",
+            title="Distribution des Prédictions",
             color_discrete_map={"Yes": "#ff6b6b", "No": "#51cf66"}
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
-        # Scores de probabilite dans le temps
+        # Score de risque au fil du temps
         fig_proba = px.line(
             hist_df, y="probability_yes",
-            title="Score de risque dans le temps",
-            labels={"probability_yes": "P(Oui)", "index": "Prediction n"}
+            title="Score de Risque au Fil du Temps",
+            labels={"probability_yes": "P(Oui)", "index": "Prédiction #"}
         )
         fig_proba.add_hline(y=0.5, line_dash="dash", line_color="red")
         st.plotly_chart(fig_proba, use_container_width=True)
 
         # Taux d'alerte
         alert_rate = len(hist_df[hist_df["prediction"] == 1]) / len(hist_df) * 100
-        st.metric("Taux d'alerte", f"{alert_rate:.1f}%")
+        st.metric("Taux d'Alerte", f"{alert_rate:.1f}%")
     else:
-        st.info("Aucune prediction pour le moment.")
+        st.info("Aucune prédiction pour le moment.")
 
 
-# Main => Form
-st.header("Informations du patient")
+# Formulaire Principal
+st.header("Informations Démographiques")
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 with col1:
-    age = st.number_input("Age", min_value=1, max_value=120, value=30)
-    gender = st.selectbox("Genre", list(GENDER_MAP.keys()))
-    country = st.selectbox("Pays", list(COUNTRY_MAP.keys()))
-    stress_level = st.selectbox("Niveau de stress", list(STRESS_MAP.keys()))
-    sleep_hours = st.number_input("Heures de sommeil (par nuit)", min_value=3.0, max_value=12.0, value=7.5, step=0.5)
-
+    age = st.number_input("Quel âge avez-vous ?", min_value=17, max_value=90, value=30)
+    
+    education_label = st.selectbox(
+        "Quel est votre niveau d'études ?",
+        options=list(EDUCATION_OPTIONS.keys())
+    )
+    education = EDUCATION_OPTIONS[education_label]
+    
+    gender_label = st.selectbox(
+        "Quel est votre genre ?",
+        options=list(GENDER_OPTIONS.keys())
+    )
+    gender = GENDER_OPTIONS[gender_label]
+    
+    hand_label = st.selectbox(
+        "Quelle main utilisez-vous pour écrire ?",
+        options=list(HAND_OPTIONS.keys())
+    )
+    hand = HAND_OPTIONS[hand_label]
+    
 with col2:
-    physical_activity = st.selectbox("Activite physique", list(PHYSICAL_ACTIVITY_MAP.keys()))
-    chronic_illness = st.selectbox("Maladie chronique", list(YES_NO_MAP.keys()))
-    mental_health_history = st.selectbox("Antecedents de sante mentale", list(YES_NO_MAP.keys()))
+    urban_label = st.selectbox(
+        "Dans quel type de zone avez-vous grandi ?",
+        options=list(URBAN_OPTIONS.keys())
+    )
+    urban = URBAN_OPTIONS[urban_label]
+    
+    religion_label = st.selectbox(
+        "Quelle est votre religion ?",
+        options=list(RELIGION_OPTIONS.keys())
+    )
+    religion = RELIGION_OPTIONS[religion_label]
+    
+    orientation_label = st.selectbox(
+        "Quelle est votre orientation sexuelle ?",
+        options=list(ORIENTATION_OPTIONS.keys())
+    )
+    orientation = ORIENTATION_OPTIONS[orientation_label]
+    
+    race_label = st.selectbox(
+        "Quelle est votre origine ethnique ?",
+        options=list(RACE_OPTIONS.keys())
+    )
+    race = RACE_OPTIONS[race_label]
+
+col3, col4, col5 = st.columns(3)
 
 with col3:
-    treatment = st.selectbox("Traitement en cours", list(TREATMENT_MAP.keys()))
-    days_of_treatment = st.number_input("Jours de traitement", min_value=0, max_value=365, value=0, step=1)
-    work_status = st.selectbox("Situation professionnelle", list(WORK_STATUS_MAP.keys()))
-
-# GAD-7
-st.header("Questionnaire GAD-7")
-st.markdown("Au cours des **2 dernieres semaines**, a quelle frequence avez-vous ete gene(e) par les problemes suivants ?")
-
-gad7_scores = []
-for i, question in enumerate(GAD7_QUESTIONS):
-    score = st.selectbox(
-        f"{i+1}. {question}",
-        options=list(GAD7_OPTIONS.keys()),
-        key=f"gad7_{i}"
+    voted_label = st.selectbox(
+        "Avez-vous voté aux élections nationales l'année dernière ?",
+        options=list(VOTED_OPTIONS.keys())
     )
-    gad7_scores.append(GAD7_OPTIONS[score])
+    voted_int = VOTED_OPTIONS[voted_label]
 
-anxiety_score = sum(gad7_scores)
+with col4:
+    familysize = st.number_input("En vous incluant, combien d'enfants votre mère a-t-elle eu ?", min_value=1, max_value=20, value=2, step=1)
 
-# Interpretation du score
-if anxiety_score <= 4:
-    gad7_interpretation = "Anxiete minimale"
-elif anxiety_score <= 9:
-    gad7_interpretation = "Anxiete legere"
-elif anxiety_score <= 14:
-    gad7_interpretation = "Anxiete moderee"
-else:
-    gad7_interpretation = "Anxiete severe"
-
-st.metric("Score GAD-7 total", f"{anxiety_score} / 21 -- {gad7_interpretation}")
-
-
-# PHQ 9
-st.header("Questionnaire PHQ-9")
-st.markdown("Au cours des **2 dernieres semaines**, a quelle frequence avez-vous ete gene(e) par les problemes suivants ?")
-
-phq9_scores = []
-for i, question in enumerate(PHQ9_QUESTIONS):
-    score = st.selectbox(
-        f"{i+1}. {question}",
-        options=list(PHQ9_OPTIONS.keys()),
-        key=f"phq9_{i}"
+with col5:
+    married_label = st.selectbox(
+        "Quel est votre statut matrimonial ?",
+        options=list(MARRIED_OPTIONS.keys())
     )
-    phq9_scores.append(PHQ9_OPTIONS[score])
+    married = MARRIED_OPTIONS[married_label]
 
-depression_score = sum(phq9_scores)
+# Questionnaire DASS-42
+st.header("Questionnaire DASS-42")
+st.markdown("Veuillez évaluer votre accord avec chaque affirmation selon l'échelle suivante")
 
-st.metric("Score PHQ-9 total", f"{depression_score} / 27")
+dass42_scores = []
+for question_id, question_text in DASS42_QUESTIONS.items():
+    score = st.selectbox(
+        f"{question_id}: {question_text}",
+        options=list(DASS42_OPTIONS.keys()),
+        key=f"dass42_{question_id}"
+    )
+    dass42_scores.append(DASS42_OPTIONS[score])
+
+dass42_total = sum(dass42_scores)
+st.metric("Score DASS-42 Total", f"{dass42_total} / 24")
 
 # Optionnel : Email pour notification
-user_email = st.text_input("Email utilisateur (pour notification par agent IA)", placeholder="utilisateur@exemple.com")
+user_email = st.text_input("Email (pour notification par agent IA)", placeholder="utilisateur@exemple.com")
 
-# Prediction Button
+# Bouton de Prédiction
 col_pred, col_notify = st.columns(2)
 
 with col_pred:
-    predict_btn = st.button("Predire", type="primary", use_container_width=True)
+    predict_btn = st.button("Prédire", type="primary", use_container_width=True)
 
 with col_notify:
     notify_btn = st.button("Notifier l'utilisateur (Agent IA)", use_container_width=True,
@@ -234,23 +255,29 @@ with col_notify:
 # Handle Prediction 
 if predict_btn:
     input_data = {
-        "Age": age,
-        "Gender": GENDER_MAP[gender],
-        "Country": COUNTRY_MAP[country],
-        "Depression_Score": depression_score,
-        "Anxiety_Score": anxiety_score,
-        "Stress_Level": STRESS_MAP[stress_level],
-        "Sleep_Hours": sleep_hours,
-        "Physical_Activity": PHYSICAL_ACTIVITY_MAP[physical_activity],
-        "Chronic_Illness": YES_NO_MAP[chronic_illness],
-        "Mental_Health_History": YES_NO_MAP[mental_health_history],
-        "Treatment": TREATMENT_MAP[treatment],
-        "Days_of_Treatment": days_of_treatment,
-        "Work_Status": WORK_STATUS_MAP[work_status]
+        "Q3A": dass42_scores[0],
+        "Q10A": dass42_scores[1],
+        "Q13A": dass42_scores[2],
+        "Q16A": dass42_scores[3],
+        "Q26A": dass42_scores[4],
+        "Q34A": dass42_scores[5],
+        "Q37A": dass42_scores[6],
+        "Q38A": dass42_scores[7],
+        "age": age,
+        "voted": voted_int,
+        "familysize": familysize,
+        "education": education,
+        "urban": urban,
+        "gender": gender,
+        "hand": hand,
+        "religion": religion,
+        "orientation": orientation,
+        "race": race,
+        "married": married
     }
 
     try:
-        with st.spinner("Appel de l'API de prediction..."):
+        with st.spinner("Appel de l'API de prédiction..."):
             response = requests.post(f"{API_URL}/predict", json=input_data, timeout=10)
             result = response.json()
 
@@ -261,84 +288,32 @@ if predict_btn:
             "user_email": user_email
         }
 
-        # Add to history
+        # Ajout à l'historique
         st.session_state.predictions_history.append(result)
 
-        # Affichage du resultat
-        st.header("Resultat de la prediction")
+        # Affichage du résultat
+        st.header("Résultat de la Prédiction")
 
         res_col1, res_col2, res_col3 = st.columns(3)
 
         with res_col1:
             if result["prediction"] == 1:
-                st.error(f"Condition de sante mentale : **{result['prediction_label']}**")
+                st.error(f"Condition de Santé Mentale : **{result['prediction_label']}**")
             else:
-                st.success(f"Condition de sante mentale : **{result['prediction_label']}**")
+                st.success(f"Condition de Santé Mentale : **{result['prediction_label']}**")
 
         with res_col2:
-            st.metric("Probabilite (Oui)", f"{result['probability_yes']:.2%}")
+            st.metric("Probabilité (Oui)", f"{result['probability_yes']:.2%}")
 
         with res_col3:
-            st.metric("Probabilite (Non)", f"{result['probability_no']:.2%}")
-
-        # Probability gauge
-        fig_gauge = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=result["probability_yes"] * 100,
-            title={"text": "Score de risque (%)"},
-            gauge={
-                "axis": {"range": [0, 100]},
-                "bar": {"color": "darkred" if result["probability_yes"] > 0.5 else "green"},
-                "steps": [
-                    {"range": [0, 30], "color": "#d4edda"},
-                    {"range": [30, 60], "color": "#fff3cd"},
-                    {"range": [60, 100], "color": "#f8d7da"}
-                ],
-                "threshold": {
-                    "line": {"color": "red", "width": 4},
-                    "thickness": 0.75,
-                    "value": 50
-                }
-            }
-        ))
-        fig_gauge.update_layout(height=300)
-        st.plotly_chart(fig_gauge, use_container_width=True)
-
-        # Interpretation des facteurs
-        st.subheader("Interpretation des facteurs")
-
-        gad7_level = "minimal" if anxiety_score <= 4 else "leger" if anxiety_score <= 9 else "modere" if anxiety_score <= 14 else "severe"
-        phq9_level = "minimal" if depression_score <= 4 else "leger" if depression_score <= 9 else "modere" if depression_score <= 14 else "moderement severe" if depression_score <= 19 else "severe"
-        st.markdown("""
-        **Facteurs cles influencant cette prediction :**
-        - **Score GAD-7 (anxiete)** : {} / 21 -- niveau {}
-        - **Score PHQ-9 (depression)** : {} / 27 -- niveau {}
-        - **Niveau de stress** : {}
-        - **Heures de sommeil** : {:.1f}h/nuit ({})
-        - **Activite physique** : {}
-        - **Maladie chronique** : {}
-        - **Antecedents de sante mentale** : {}
-        - **Traitement** : {} ({} jours)
-        - **Situation professionnelle** : {}
-        """.format(
-            anxiety_score, gad7_level,
-            depression_score, phq9_level,
-            stress_level,
-            sleep_hours,
-            "en dessous des recommandations" if sleep_hours < 7 else "adequat",
-            physical_activity,
-            chronic_illness,
-            mental_health_history,
-            treatment, days_of_treatment,
-            work_status
-        ))
+            st.metric("Probabilité (Non)", f"{result['probability_no']:.2%}")
 
     except requests.exceptions.ConnectionError:
-        st.error("Impossible de se connecter a l'API de prediction. Verifiez que le conteneur serving est en cours d'execution.")
+        st.error("Impossible de se connecter à l'API de prédiction. Vérifiez que le conteneur serving est en cours d'exécution.")
     except Exception as e:
         st.error(f"Erreur : {e}")
 
-# Handle Notification (AI Agent)
+# Gestion de la Notification (Agent IA)
 if notify_btn and st.session_state.last_prediction:
     pred = st.session_state.last_prediction
     if not pred.get("user_email"):
@@ -360,12 +335,12 @@ if notify_btn and st.session_state.last_prediction:
                 response = requests.post(N8N_WEBHOOK_URL, json=payload, timeout=30)
 
             if response.status_code == 200:
-                st.success("Notification envoyee avec succes via l'agent IA !")
-                st.info("L'utilisateur recevra un email avec les details de la prediction et un lien pour donner son retour.")
+                st.success("Notification envoyée avec succès via l'agent IA !")
+                st.info("L'utilisateur recevra un email avec les détails de la prédiction et un lien pour donner son avis.")
             else:
-                st.warning(f"L'agent a repondu avec le statut {response.status_code} : {response.text}")
+                st.warning(f"L'agent a répondu avec le statut {response.status_code} : {response.text}")
 
         except requests.exceptions.ConnectionError:
-            st.warning("Agent n8n non joignable. Verifiez que le conteneur n8n est en cours d'execution.")
+            st.warning("Agent n8n non joignable. Vérifiez que le conteneur n8n est en cours d'exécution.")
         except Exception as e:
             st.error(f"Erreur lors de l'envoi de la notification : {e}")
