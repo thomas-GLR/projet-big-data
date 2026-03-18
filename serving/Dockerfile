@@ -1,9 +1,10 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY api.py .
-COPY requirements.txt .
+COPY serving/api.py .
+COPY serving/requirements.txt .
+COPY scripts/ /app/scripts/
 
 RUN pip3 install --upgrade pip
 RUN pip3 install -r requirements.txt

@@ -1,4 +1,4 @@
-evidently
+evidently<0.5
 pandas
 numpy
 scikit-learn

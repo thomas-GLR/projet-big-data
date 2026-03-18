@@ -12,8 +12,8 @@ from pydantic import BaseModel
 from typing import Optional
 import csv
 import threading
-from scripts import transform_single_input
-from scripts import retrain_model
+from scripts.utils import transform_single_input
+from scripts.utils import retrain_model
 
 app = FastAPI(
     title="Mental Health Prediction API",
@@ -53,6 +53,8 @@ def load_all_artifacts():
     """Load all model artifacts into global variables."""
     global model, scaler, label_encoder, target_encoder
     model = load_artifact("model.pkl")
+    if type(model).__name__ == "LogisticRegression" and not hasattr(model, "multi_class"):
+        model.multi_class = "auto"
     scaler = load_artifact("scaler.pkl")
     label_encoder = load_artifact("label_encoder.pkl")
     target_encoder = load_artifact("target_encoder.pkl")
@@ -88,12 +90,12 @@ class PredictionInput(BaseModel):
     familysize: int
     education: int
     urban: int
-    gender: str
-    hand: str
-    religion: str
-    orientation: str
-    race: str
-    married: str
+    gender: int
+    hand: int
+    religion: int
+    orientation: int
+    race: int
+    married: int
 
 
 class PredictionResponse(BaseModel):
@@ -117,7 +119,7 @@ class FeedbackResponse(BaseModel):
 # --- Helper functions ---
 def transform_input(data: dict) -> np.ndarray:
     """Transform raw input through the preprocessing pipeline."""
-    input = transform_single_input(data, scaler, label_encoder, target_encoder)
+    input = transform_single_input(data, label_encoder, target_encoder)
     return scaler.transform(input)
 
 

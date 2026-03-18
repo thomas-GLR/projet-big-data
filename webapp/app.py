@@ -104,6 +104,9 @@ st.set_page_config(
     layout="wide"
 )
 
+LABELS_ORDER = ["None", "Mild", "Moderate", "Severe", "Extremely severe"]
+DIAGNOSIS_OPTIONS = {label: idx for idx, label in enumerate(LABELS_ORDER)}
+
 # Session state initialization
 if "predictions_history" not in st.session_state:
     st.session_state.predictions_history = []
@@ -160,17 +163,21 @@ if page == "Saisie Docteur":
     if st.session_state.predictions_history:
         for i, pred in enumerate(reversed(st.session_state.predictions_history)):
             with st.expander(f"Cas #{len(st.session_state.predictions_history)-i} - Prédiction IA : {pred['prediction_label']} ({pred.get('timestamp', 'N/A')[:16]})"):
-                st.write(f"**Probabilité de condition (Oui)**: {pred['probability_yes']:.2%}")
+                st.write(f"**Confiance du niveau prédit**: {pred.get('proba_label', 0):.2%}")
                 if "input_data" in pred:
                     st.json(pred["input_data"])
 
-                real_res = st.radio("Résultat réel du diagnostic :", ["En attente", "Condition Vérifiée (Oui)", "Pas de Condition (Non)"], key=f"radio_{i}")
+                real_res = st.radio(
+                    "Résultat réel du diagnostic :",
+                    ["En attente"] + list(DIAGNOSIS_OPTIONS.keys()),
+                    key=f"radio_{i}"
+                )
                 
                 if st.button("Valider ce résultat", key=f"btn_val_{i}"):
                     if real_res == "En attente":
                         st.warning("Veuillez d'abord sélectionner le résultat réel.")
                     else:
-                        feed_val = 1 if "Oui" in real_res else 0
+                        feed_val = DIAGNOSIS_OPTIONS[real_res]
                         payload = {
                             "embedding": pred["embedding"],
                             "prediction": pred["prediction"],
@@ -316,34 +323,83 @@ if predict_btn:
     try:
         with st.spinner("Appel de l'API de prédiction..."):
             response = requests.post(f"{API_URL}/predict", json=input_data, timeout=10)
+            if response.status_code != 200:
+                st.error(f"Erreur API ({response.status_code})")
+                st.write("Détails:", response.text)
+                st.stop()
             result = response.json()
 
-        st.session_state.last_prediction = {
+        prediction_proba = result.get("prediction_proba", [])
+        prediction_label = result.get("prediction_label", "Inconnu")
+        if prediction_proba:
+            pred_idx = int(max(range(len(prediction_proba)), key=lambda i: prediction_proba[i]))
+            predicted_score = float(prediction_proba[pred_idx])
+            none_score = float(prediction_proba[0]) if len(prediction_proba) > 0 else 0.0
+            risk_score = max(0.0, min(1.0, 1.0 - none_score))
+        else:
+            pred_idx = 0
+            predicted_score = float(result.get("proba_label", 0.0))
+            risk_score = 0.0
+
+        normalized_result = {
             **result,
+            "prediction": pred_idx,
+            "probability_yes": risk_score,
+            "probability_no": 1.0 - risk_score
+        }
+
+        st.session_state.last_prediction = {
+            **normalized_result,
             "input_data": input_data,
             "timestamp": datetime.now().isoformat(),
             "user_email": user_email
         }
 
         # Ajout à l'historique
-        st.session_state.predictions_history.append(result)
+        st.session_state.predictions_history.append({
+            **normalized_result,
+            "timestamp": datetime.now().isoformat()
+        })
 
         # Affichage du résultat
         st.header("Résultat de la Prédiction")
 
+        if prediction_label in ["Severe", "Extremely severe"]:
+            st.error(f"Niveau détecté: {prediction_label}")
+        elif prediction_label == "Moderate":
+            st.warning(f"Niveau détecté: {prediction_label}")
+        else:
+            st.success(f"Niveau détecté: {prediction_label}")
+
         res_col1, res_col2, res_col3 = st.columns(3)
-
         with res_col1:
-            if result["prediction"] == 1:
-                st.error(f"Condition de Santé Mentale : **{result['prediction_label']}**")
-            else:
-                st.success(f"Condition de Santé Mentale : **{result['prediction_label']}**")
-
+            st.metric("Confiance du niveau prédit", f"{predicted_score:.2%}")
         with res_col2:
-            st.metric("Probabilité (Oui)", f"{result['probability_yes']:.2%}")
-
+            st.metric("Score de risque global", f"{risk_score:.2%}")
         with res_col3:
-            st.metric("Probabilité (Non)", f"{result['probability_no']:.2%}")
+            st.metric("Dimension embedding", len(result.get("embedding", [])))
+
+        proba_labels = LABELS_ORDER[:len(prediction_proba)] if prediction_proba else [prediction_label]
+        proba_values = prediction_proba if prediction_proba else [predicted_score]
+        proba_df = pd.DataFrame({"Niveau": proba_labels, "Probabilité": proba_values})
+
+        fig_proba_detail = px.bar(
+            proba_df,
+            x="Niveau",
+            y="Probabilité",
+            text=proba_df["Probabilité"].map(lambda x: f"{x:.1%}"),
+            color="Probabilité",
+            color_continuous_scale="Blues",
+            title="Répartition des probabilités par niveau"
+        )
+        fig_proba_detail.update_layout(coloraxis_showscale=False, yaxis_tickformat=".0%")
+        fig_proba_detail.update_traces(textposition="outside")
+        st.plotly_chart(fig_proba_detail, use_container_width=True)
+
+        with st.expander("Voir les détails techniques"):
+            st.write("Index de classe prédit:", pred_idx)
+            st.write("Probabilités brutes:", prediction_proba)
+            st.write("Aperçu embedding (10 premières valeurs):", result.get("embedding", [])[:10])
 
     except requests.exceptions.ConnectionError:
         st.error("Impossible de se connecter à l'API de prédiction. Vérifiez que le conteneur serving est en cours d'exécution.")

@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from evidently import ColumnMapping
 from evidently.report import Report
 from evidently.metric_preset import DataDriftPreset, ClassificationPreset
-from evidently.ui.workspace import Workspace, Project
+from evidently.ui.workspace import Workspace
+from evidently.ui.base import Project
 
 # --- Configuration ---
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
@@ -19,15 +20,14 @@ WORKSPACE_PATH = "evidently_workspace"
 PROJECT_NAME = "Mental Health Prediction Monitoring"
 PROJECT_DESCRIPTION = "Monitoring data drift and model performance for mental health condition prediction"
 
-# PCA column names
-N_PCA_COMPONENTS = 5
-PCA_COLUMNS = [f"pca_{i}" for i in range(N_PCA_COMPONENTS)]
+# Numerical columns for Evidently
+NUMERICAL_COLUMNS = ["age", "familysize", "education", "urban"]
 
 # Column mapping for Evidently
 column_mapping = ColumnMapping(
     target="target",
     prediction="prediction",
-    numerical_features=PCA_COLUMNS,
+    numerical_features=NUMERICAL_COLUMNS,
 )
 
 
@@ -72,7 +72,7 @@ def create_demo_prod_data() -> pd.DataFrame:
     prod_df = ref_df.sample(n=sample_size, random_state=42).copy()
 
     # Add slight noise to simulate real production data
-    for col in PCA_COLUMNS:
+    for col in NUMERICAL_COLUMNS:
         noise = np.random.normal(0, 0.1, size=len(prod_df))
         prod_df[col] = prod_df[col] + noise
 
