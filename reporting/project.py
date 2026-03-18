@@ -16,7 +16,7 @@ from evidently.ui.base import Project
 
 # --- Configuration ---
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
-WORKSPACE_PATH = "evidently_workspace"
+WORKSPACE_PATH = os.environ.get("WORKSPACE_PATH", "/app/evidently_workspace")
 PROJECT_NAME = "Mental Health Prediction Monitoring"
 PROJECT_DESCRIPTION = "Monitoring data drift and model performance for mental health condition prediction"
 

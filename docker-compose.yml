@@ -45,8 +45,11 @@ services:
     build:
       context: ./reporting
       dockerfile: Dockerfile
+    environment:
+      - WORKSPACE_PATH=/app/evidently_workspace
     volumes:
       - ./data:/data
+      - reporting_workspace:/app/evidently_workspace
     ports:
       - "8082:8082"
     networks:
@@ -76,3 +79,4 @@ services:
 
 volumes:
   n8n_data:
+  reporting_workspace:
