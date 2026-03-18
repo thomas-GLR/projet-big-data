@@ -18,27 +18,40 @@
     },
     {
       "parameters": {
-        "keepOnlySet": true,
-        "values": {
-          "string": [
+        "url": "https://api.openai.com/v1/chat/completions",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "name": "report",
-              "value": "### Rapport Clinique Préliminaire (Simulé)\n\n**Note :** Le système de génération automatique via OpenAI est actuellement indisponible ou en maintenance. \n\nCe rapport est généré à titre d'exemple pour valider la chaîne de traitement.\n\n#### Résumé Exécutif\nLe patient présente des indicateurs nécessitant une évaluation clinique approfondie. Les scores DASS-42 suggèrent une détresse modérée.\n\n#### Recommandations\n- Entretien clinique complet recommandé.\n- Vérifier les antécédents familiaux.\n- Envisager un suivi psychologique."
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a senior clinical decision-support assistant. Write a concise, professional synthetic report in French for a clinician, based on an ML mental-health prediction. The report must include: 1) résumé exécutif, 2) facteurs observés dans les données d'entrée, 3) interprétation du niveau de risque, 4) limites et prudence d'usage, 5) recommandations opérationnelles immédiates. Keep an objective medical tone, avoid definitive diagnosis claims, and mention this is a screening aid.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Génère un rapport synthétique professionnel à partir des informations suivantes.\\n\\nNiveau prédit: {{ $json.prediction_label }}\\nProbabilité risque global: {{ $json.probability_yes }}\\nProbabilité non-risque: {{ $json.probability_no }}\\nHorodatage: {{ $json.timestamp }}\\nContexte clinique additionnel: {{ $json.clinical_context }}\\n\\nDonnées d'entrée patient:\\n{{ JSON.stringify($json.input_data, null, 2) }}\\n\\nFormat attendu:\\n- Titre\\n- Résumé exécutif (3-5 lignes)\\n- Analyse structurée\\n- Recommandations pratiques\\n- Avertissement clinique\\n\\nRédige en français, format Markdown clair et professionnel.\"\n    }\n  ]\n}",
         "options": {}
       },
-      "id": "mock-report",
-      "name": "Mock Report Generator",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 1,
-      "position": [500, 300]
+      "id": "openai-llm",
+      "name": "OpenAI - HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-header-auth",
+          "name": "OpenAI Header Auth"
+        }
+      }
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ {\"status\": \"success\", \"report\": $json.report} }}"
+        "responseBody": "={{ {\"status\": \"success\", \"report\": $json.choices[0].message.content} }}"
       },
       "id": "respond-webhook",
       "name": "Respond to Webhook",
@@ -52,14 +65,14 @@
       "main": [
         [
           {
-            "node": "Mock Report Generator",
+            "node": "OpenAI - HTTP Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Mock Report Generator": {
+    "OpenAI - HTTP Request": {
       "main": [
         [
           {
