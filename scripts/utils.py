@@ -13,7 +13,7 @@ warnings.filterwarnings('ignore')
 from sklearn.preprocessing import LabelEncoder, TargetEncoder, StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.metrics import make_scorer, roc_auc_score, precision_score, recall_score, mean_absolute_error, r2_score, \
-    mean_squared_error, accuracy_score
+    mean_squared_error, accuracy_score, f1_score
 from sklearn.model_selection import GridSearchCV, train_test_split, KFold, cross_val_score, cross_validate, \
     StratifiedKFold
 from sklearn.base import is_classifier, is_regressor
@@ -214,6 +214,9 @@ STRESS_SCORE = "stress_score"
 DEPRESSION_OUTCOME = "depression_outcome"
 ANXIETY_OUTCOME = "anxiety_outcome"
 STRESS_OUTCOME = "stress_outcome"
+DEPRESSION_TARGET = "depression_target"
+ANXIETY_TARGET = "anxiety_target"
+STRESS_TARGET = "stress_target"
 
 USELESS_COLUMNS = (
         [f"Q{i}E" for i in range(1, 43)] +
@@ -234,10 +237,12 @@ USELESS_COLUMNS = (
             MAJOR, # Not relevant because too much missing values
             # for the moment we only want to predict depression, but we could also predict anxiety and stress in the future
             STRESS_OUTCOME,
-            ANXIETY_OUTCOME
+            ANXIETY_OUTCOME,
+            DEPRESSION_TARGET,
+            ANXIETY_TARGET,
+            STRESS_TARGET,
         ] +
-        [f"VCL{i}" for i in range(1, 17)] +
-        [f"TIPI{i}" for i in range(1, 11)]
+        [f"VCL{i}" for i in range(1, 17)]
 )
 
 DASS_ANSWER_QUESTION = [f"Q{i}A" for i in range(1, 43)]
@@ -255,6 +260,17 @@ TARGET_COL = DEPRESSION_OUTCOME
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW_DATA_DIR = os.path.join(ROOT_DIR, 'donnees_brut')
+
+
+class Result:
+    def __init__(self, model_name: str, accuracy: float, precision: float, recall: float, f1_score: float, roc_auc: float):
+        self.model_name = model_name
+        self.accuracy = accuracy
+        self.precision = precision
+        self.recall = recall
+        self.f1_score = f1_score
+        self.roc_auc = roc_auc
+
 
 def load_raw_data_without_useless_columns(filepath: str = None, sep: str = "\t") -> pd.DataFrame:
     """Load the raw dataset without useless columns."""
@@ -343,10 +359,10 @@ def generate_labels(df):
     df["stress_score"] = df[stress_items].sum(axis=1)
 
     score_depression = {
-        0: 9,
-        1: 13,
-        2: 20,
-        3: 27
+        0: 9, # None
+        1: 13, # Mild
+        2: 20, # Moderate
+        3: 27 # Severe
     }
     score_anixety = {
         0: 7,
@@ -367,6 +383,11 @@ def generate_labels(df):
         lambda x: 0 if x <= score_anixety[0] else 1 if x <= score_anixety[1] else 2 if x <= score_anixety[2] else 3 if x <= score_anixety[3] else 4)
     df["stress_outcome"] = df["stress_score"].apply(
         lambda x: 0 if x <= score_stress[0] else 1 if x <= score_stress[1] else 2 if x <= score_stress[2] else 3 if x <= score_stress[3] else 4)
+
+    # We want to predict only if the person is depressed or not, we can create a binary target variable where 0 means low depression level (score <= 20) and 1 means high depression (score > 20)
+    df["depression_target"] = df["depression_score"].apply(lambda x: 0 if x <= score_depression[2]  else 1)
+    df["anxiety_target"] = df["anxiety_score"].apply(lambda x: 0 if x <= score_anixety[2]  else 1)
+    df["stress_target"] = df["stress_score"].apply(lambda x: 0 if x <= score_stress[2]  else 1)
 
 
 def target_encoding(df: pd.DataFrame) -> pd.DataFrame:
@@ -389,7 +410,7 @@ def get_data_for_mrmr(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     return df[DASS_ANSWER_QUESTION], df[TARGET_COL]
 
 
-def encode_categorical_columns(df: pd.DataFrame, target_encoder_columns=None, binary_columns=None) -> pd.DataFrame:
+def encode_categorical_columns(df: pd.DataFrame, target_type: str, target_encoder_columns=None, binary_columns=None) -> pd.DataFrame:
     """
     Encode categorical columns. For binary columns replace by 1 and 0. For columns with multiple values,
     use pd.get_dummies() with drop_first=True to avoid multicollinearity issues.
@@ -397,6 +418,7 @@ def encode_categorical_columns(df: pd.DataFrame, target_encoder_columns=None, bi
     and DUMMIES_ENCODER_COLS for the rest of the categorical columns with multiple values.
 
     :param df: DataFrame with categorical columns to encode
+    :param target_type: Type of the target variable ("binary" or "multiclass") to determine the encoding strategy
     :param target_encoder_columns: List of columns to encode with TargetEncoder
     :param binary_columns: List of binary columns to encode with LabelEncoder
     :return: DataFrame with encoded categorical columns
@@ -417,7 +439,7 @@ def encode_categorical_columns(df: pd.DataFrame, target_encoder_columns=None, bi
     # Tree-based classifiers (e.g., Random Forest) tolerate it but benefit from fewer features.
     # df = pd.get_dummies(df, columns=target_encoder_columns, drop_first=True)
 
-    target_encoder = TargetEncoder(target_type="multiclass", smooth="auto")
+    target_encoder = TargetEncoder(target_type=target_type, smooth="auto")
 
     Y = get_target(df)
     unique_labels = sorted(np.unique(Y))  # ['Excellent', 'Fair', 'Good', 'Poor']
@@ -430,8 +452,15 @@ def encode_categorical_columns(df: pd.DataFrame, target_encoder_columns=None, bi
         for label in unique_labels
     ]
 
-    encoded_df = pd.DataFrame(encoded, columns=new_cols, index=df.index)
-    df = df.drop(columns=target_encoder_columns)
+    print(encoded[0])
+    print(new_cols)
+
+    if target_type == "multiclass":
+        encoded_df = pd.DataFrame(encoded, columns=new_cols, index=df.index)
+        df = df.drop(columns=target_encoder_columns)
+    else:
+        encoded_df = pd.DataFrame(encoded, columns=target_encoder_columns, index=df.index)
+
     df = pd.concat([df, encoded_df], axis=1)
 
     return df
@@ -445,6 +474,12 @@ def get_target_classes(df: pd.DataFrame) -> np.ndarray:
 def get_target(df: pd.DataFrame) -> np.ndarray:
     """Extract the target variable as a numpy array."""
     return df[TARGET_COL].values
+
+
+def filter_dass_answers_by_giving_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    answer_to_filter = list(set(DASS_ANSWER_QUESTION).difference(columns))
+
+    return df.drop(columns=answer_to_filter)
 
 
 def split_features_target(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -592,7 +627,9 @@ def pca(X: np.ndarray, Y: np.ndarray, columns_label: list[str], n_components: fl
 def run_classifiers_cv(
         clfs_par_nom,
         X,
-        Y
+        Y,
+        fold_number=5,
+        holdout_size=0.15
 ):
     """
     Effectue une cross-validation sur les classifieurs passés en paramètre et compare dans un tableau
@@ -610,8 +647,6 @@ def run_classifiers_cv(
     cv_scores_par_nom_model = {}
 
     result_from_all_model = []
-
-    nombre_fold = 10
 
     scoring = {
         "accuracy": "accuracy",
@@ -635,64 +670,105 @@ def run_classifiers_cv(
         "balanced_accuracy": "balanced_accuracy"
     }
 
-    kf = StratifiedKFold(n_splits=nombre_fold, shuffle=True, random_state=0)
+    result_columns = [
+        "Accuracy moyenne", "Accuracy écart type",
+        "AUC moyenne", "AUC écart type",
+        "Précision moyenne", "Précision écart type",
+        "Recall moyen", "Recall écart type",
+        "Temps moyen par fold",
+        "Holdout Accuracy", "Holdout AUC"  # <-- colonnes holdout
+    ]
+
+    # --- Séparation hold-out AVANT tout traitement ---
+    X_cross_validation, X_holdout, Y_cross_validation, Y_holdout = train_test_split(
+        X, Y,
+        test_size=holdout_size,
+        random_state=1,
+        stratify=Y  # retire stratify=Y si régression pure sur valeurs continues
+    )
+    print(f"Taille X pour la cross validation : {X_cross_validation.shape[0]} | Taille X pour la validation : {X_holdout.shape[0]}\n")
+
+    # Use StratifiedKFold for classification to maintain the same class distribution in each fold, and KFold for regression
+    kf = StratifiedKFold(n_splits=fold_number, shuffle=True, random_state=0)
+
     for nom_model, clf in clfs_par_nom.items():
         print(f"Cross-validation pour {nom_model}...")
-        resultats = cross_validate(clf, X, Y, cv=kf, scoring=scoring)
 
-        accuracy = resultats["test_accuracy"]
-        auc = resultats["test_roc_auc"]
-        precision = resultats["test_precision"]
-        recall = resultats["test_recall"]
-        f1_macro = resultats["test_f1_macro"]
-        balanced_accuracy = resultats["test_balanced_accuracy"]
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('clf', clf)
+        ])
+
+        resultats = cross_validate(pipeline, X_cross_validation, Y_cross_validation, cv=kf, scoring=scoring, return_train_score=True)
+
+        test_accuracy = resultats["test_accuracy"]
+        test_auc = resultats["test_roc_auc"]
+        test_precision = resultats["test_precision"]
+        test_recall = resultats["test_recall"]
+        test_f1_macro = resultats["test_f1_macro"]
+        test_balanced_accuracy = resultats["test_balanced_accuracy"]
+
+        train_accuracy = resultats["train_accuracy"]
+        train_auc = resultats["train_roc_auc"]
+        train_precision = resultats["train_precision"]
+        train_recall = resultats["train_recall"]
+        train_f1_macro = resultats["train_f1_macro"]
+        train_balanced_accuracy = resultats["train_balanced_accuracy"]
 
         score_time = resultats["score_time"]
 
-        cv_scores_par_nom_model[nom_model] = np.mean(accuracy)
+        print(f"\tTrain Accuracy : {train_accuracy.mean():.4f} ± {train_accuracy.std():.4f}")
+        print(f"\tTest Accuracy  : {test_accuracy.mean():.4f} ± {test_accuracy.std():.4f}")
+
+        print(f"\tTrain AUC : {train_auc.mean():.4f} ± {train_auc.std():.4f}")
+        print(f"\tTest AUC  : {test_auc.mean():.4f} ± {test_auc.std():.4f}")
+
+        print(f"\tTrain Precision : {train_precision.mean():.4f} ± {train_precision.std():.4f}")
+        print(f"\tTest Precision  : {test_precision.mean():.4f} ± {test_precision.std():.4f}")
+
+        print(f"\tTrain Recall : {train_recall.mean():.4f} ± {train_recall.std():.4f}")
+        print(f"\tTest Recall  : {test_recall.mean():.4f} ± {test_recall.std():.4f}")
+
+        print(f"\tTrain F1 macro : {train_f1_macro.mean():.4f} ± {train_f1_macro.std():.4f}")
+        print(f"\tTest F1 macro  : {test_f1_macro.mean():.4f} ± {test_f1_macro.std():.4f}")
+
+        pipeline.fit(X_cross_validation, Y_cross_validation)
+        print(f"\n\t--- Évaluation Hold-out ({holdout_size * 100:.0f}%) ---")
+
+        Y_pred_holdout = pipeline.predict(X_holdout)
+        Y_proba_holdout = pipeline.predict_proba(X_holdout)
+        h_accuracy = accuracy_score(Y_holdout, Y_pred_holdout)
+        h_auc = roc_auc_score(Y_holdout, Y_proba_holdout, multi_class="ovr", average="macro")
+
+        print(f"\tHoldout Accuracy : {h_accuracy:.4f}  (CV : {test_accuracy.mean():.4f})")
+        print(f"\tHoldout AUC      : {h_auc:.4f}  (CV : {test_auc.mean():.4f})")
+
+        if abs(h_accuracy - test_accuracy.mean()) > 0.05:
+            print(f"\tÉcart Accuracy CV/Holdout > 0.05 — leakage ou overfitting possible")
+        else:
+            print(f"\tÉcart CV/Holdout faible — pas de leakage détecté")
+
+        cv_scores_par_nom_model[nom_model] = np.mean(test_accuracy)
 
         result_from_all_model.append([
-            accuracy.mean(),
-            accuracy.std(),
-            auc.mean(),
-            auc.std(),
-            precision.mean(),
-            precision.std(),
-            recall.mean(),
-            recall.std(),
-            f1_macro.mean(),
-            f1_macro.std(),
-            balanced_accuracy.mean(),
-            balanced_accuracy.std(),
-            score_time.mean()
+            test_accuracy.mean(), test_accuracy.std(),
+            test_auc.mean(), test_auc.std(),
+            test_precision.mean(), test_precision.std(),
+            test_recall.mean(), test_recall.std(),
+            score_time.mean(),
+            h_accuracy, h_auc
         ])
 
+        print()
+
     rows = list(clfs_par_nom.keys())
-
-    columns = [
-        "Accuracy moyenne",
-        "Accuracy écart type",
-        "AUC moyenne",
-        "AUC écart type",
-        "Précision moyenne",
-        "Précision écart type",
-        "Recall moyen",
-        "Recall écart type",
-        "f1_macro moyen",
-        "f1_macro écart type",
-        "balanced_accuracy moyen",
-        "balanced_accuracy écart type",
-        "Temps moyen par fold"
-    ]
-
-    df = pd.DataFrame(result_from_all_model, columns=columns, index=rows)
-
+    df = pd.DataFrame(result_from_all_model, columns=result_columns, index=rows)
     print(df)
 
-    best_model, score_final_precision_max = (
+    best_model, test_accuracy = (
         max(cv_scores_par_nom_model.items(), key=lambda kv: kv[1]))
 
-    return best_model, score_final_precision_max
+    return best_model, test_accuracy
 
 
 def run_classifiers_cv_clfs_rgs(clfs_par_nom, X, Y):
@@ -960,6 +1036,24 @@ def importance_variables(X, Y, nom_cols):
     plt.show()
 
     return sorted_idx
+
+
+def evaluate_model(model_name: str, y_model, Ytest, y_proba) -> Result:
+
+    accuracy = accuracy_score(Ytest, y_model)
+    precisions = precision_score(Ytest, y_model, average="macro")
+    recalls = recall_score(Ytest, y_model, average="macro")
+    f1_macros = f1_score(Ytest, y_model, average="macro")
+    roc_aucs = roc_auc_score(Ytest, y_proba, multi_class='ovr')
+
+    return Result(
+        model_name=model_name,
+        accuracy=accuracy,
+        precision=precisions,
+        recall=recalls,
+        f1_score=f1_macros,
+        roc_auc=roc_aucs
+    )
 
 
 # def selection_nombre_optimal_variables(Xtrain, Ytrain, Xtest, Ytest, sorted_idx):
