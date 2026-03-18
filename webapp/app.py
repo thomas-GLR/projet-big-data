@@ -348,13 +348,13 @@ if predict_btn:
                 st.success(f"Condition de Santé Mentale : **{result['prediction_label']}**")
 
         with res_col2:
-            st.metric("Score (classe prédite)", f"{result['probability_yes']:.2%}")
+            st.metric("Label prédit", result["prediction"])
 
         with res_col3:
-            if result["probability_no"] is not None:
-                st.metric("Probabilité (Non)", f"{result['probability_no']:.2%}")
+            if result["probability_yes"] is not None:
+                st.metric("Score (classe prédite)", f"{result['probability_yes']:.2%}")
             else:
-                st.metric("Probabilité (Non)", "N/A")
+                st.metric("Score (classe prédite)", "N/A")
 
     except requests.exceptions.ConnectionError:
         st.error("Impossible de se connecter à l'API de prédiction. Vérifiez que le conteneur serving est en cours d'exécution.")

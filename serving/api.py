@@ -37,6 +37,17 @@ label_encoder = None
 model_lock = threading.Lock()
 
 
+def _ensure_model_compatibility(loaded_model):
+    """Patch known sklearn pickle compatibility issues across versions."""
+    # Some sklearn versions expect this attribute on LogisticRegression,
+    # while older pickles may not have it.
+    if loaded_model is not None and type(loaded_model).__name__ == "LogisticRegression":
+        if not hasattr(loaded_model, "multi_class"):
+            loaded_model.multi_class = "auto"
+
+    return loaded_model
+
+
 def load_artifact(filename: str):
     """Load a pickle artifact."""
     filepath = os.path.join(ARTIFACTS_DIR, filename)
@@ -54,7 +65,7 @@ def save_artifact(obj, filename: str):
 def load_all_artifacts():
     """Load all model artifacts into global variables."""
     global model, scaler, label_encoder, target_encoder
-    model = load_artifact("model.pkl")
+    model = _ensure_model_compatibility(load_artifact("model.pkl"))
     scaler = load_artifact("scaler.pkl")
     label_encoder = load_artifact("label_encoder.pkl")
     target_encoder = load_artifact("target_encoder.pkl")
@@ -99,6 +110,7 @@ class PredictionInput(BaseModel):
 
 
 class PredictionResponse(BaseModel):
+    prediction: int
     prediction_proba: list
     prediction_label: str
     proba_label: float
@@ -167,6 +179,7 @@ def predict(data: PredictionInput):
             nom_prediction = labels_predictions[prediction]
 
         return PredictionResponse(
+            prediction=prediction,
             prediction_proba=proba.tolist(),
             prediction_label=nom_prediction,
             proba_label=proba[prediction],
