@@ -1,15 +1,17 @@
 {
-  "name": "Mental Health Prediction - AI Agent Workflow",
+  "id": "report-workflow-1",
+  "name": "Mental Health Prediction - Professional Report Workflow",
+  "active": true,
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "notify-user",
+        "path": "generate-report",
         "responseMode": "responseNode",
         "options": {}
       },
       "id": "webhook-trigger",
-      "name": "Webhook - Notify User",
+      "name": "Webhook - Generate Report",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [250, 300]
@@ -21,18 +23,18 @@
           "values": [
             {
               "role": "system",
-              "content": "You are a mental health assistant AI. Based on the prediction results from our ML model, compose a professional and empathetic email to notify the user about their mental health screening results. The email should: 1) Explain the prediction in simple terms, 2) Provide supportive context, 3) Include a clear call-to-action for the user to confirm or correct the prediction. Keep the tone compassionate and non-alarming."
+              "content": "You are a senior clinical decision-support assistant. Write a concise, professional synthetic report in French for a clinician, based on an ML mental-health prediction. The report must include: 1) résumé exécutif, 2) facteurs observés dans les données d'entrée, 3) interprétation du niveau de risque, 4) limites et prudence d'usage, 5) recommandations opérationnelles immédiates. Keep an objective medical tone, avoid definitive diagnosis claims, and mention this is a screening aid."
             },
             {
               "role": "user",
-              "content": "=Generate an email for the following prediction:\n\nPrediction: {{ $json.prediction_label }}\nProbability of mental health condition: {{ $json.probability_yes }}\nUser email: {{ $json.email }}\nTimestamp: {{ $json.timestamp }}\n\nInput data:\n- Age: {{ $json.input_data.Age }}\n- Stress Level: {{ $json.input_data.Stress_Level }}\n- Sleep Hours: {{ $json.input_data.Sleep_Hours }}\n- Work Hours: {{ $json.input_data.Work_Hours }}\n\nPlease generate:\n1. Email subject line\n2. Email body (HTML formatted)\n\nThe email should include a feedback section where the user can confirm or correct the prediction."
+              "content": "=Génère un rapport synthétique professionnel à partir des informations suivantes.\n\nNiveau prédit: {{ $json.prediction_label }}\nProbabilité risque global: {{ $json.probability_yes }}\nProbabilité non-risque: {{ $json.probability_no }}\nHorodatage: {{ $json.timestamp }}\nContexte clinique additionnel: {{ $json.clinical_context }}\n\nDonnées d'entrée patient:\n{{ JSON.stringify($json.input_data, null, 2) }}\n\nFormat attendu:\n- Titre\n- Résumé exécutif (3-5 lignes)\n- Analyse structurée\n- Recommandations pratiques\n- Avertissement clinique\n\nRédige en français, format Markdown clair et professionnel."
             }
           ]
         },
         "options": {}
       },
       "id": "openai-llm",
-      "name": "OpenAI - Generate Email",
+      "name": "OpenAI - Generate Professional Report",
       "type": "n8n-nodes-base.openAi",
       "typeVersion": 1,
       "position": [500, 300],
@@ -45,28 +47,8 @@
     },
     {
       "parameters": {
-        "fromEmail": "mental-health-prediction@example.com",
-        "toEmail": "={{ $node['Webhook - Notify User'].json.email }}",
-        "subject": "=Mental Health Screening Result - {{ $node['Webhook - Notify User'].json.prediction_label }}",
-        "html": "=<html><body>{{ $json.choices[0].message.content }}<br><br><h3>Confirm or Correct this prediction:</h3><p><a href='http://localhost:8080/feedback-form?embedding={{ encodeURIComponent(JSON.stringify($node[\"Webhook - Notify User\"].json.embedding)) }}&prediction={{ $node[\"Webhook - Notify User\"].json.prediction }}&email={{ $node[\"Webhook - Notify User\"].json.email }}' style='background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Review & Provide Feedback</a></p></body></html>",
-        "options": {}
-      },
-      "id": "send-email",
-      "name": "Send Email",
-      "type": "n8n-nodes-base.emailSend",
-      "typeVersion": 1,
-      "position": [750, 300],
-      "credentials": {
-        "smtp": {
-          "id": "smtp-credentials",
-          "name": "SMTP"
-        }
-      }
-    },
-    {
-      "parameters": {
         "respondWith": "json",
-        "responseBody": "={\"status\": \"success\", \"message\": \"Notification sent to {{ $node['Webhook - Notify User'].json.email }}\"}"
+        "responseBody": "={{ {\"status\": \"success\", \"report\": $json.choices[0].message.content} }}"
       },
       "id": "respond-webhook",
       "name": "Respond to Webhook",
@@ -76,29 +58,18 @@
     }
   ],
   "connections": {
-    "Webhook - Notify User": {
+    "Webhook - Generate Report": {
       "main": [
         [
           {
-            "node": "OpenAI - Generate Email",
+            "node": "OpenAI - Generate Professional Report",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OpenAI - Generate Email": {
-      "main": [
-        [
-          {
-            "node": "Send Email",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send Email": {
+    "OpenAI - Generate Professional Report": {
       "main": [
         [
           {

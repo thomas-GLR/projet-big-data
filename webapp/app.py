@@ -4,11 +4,44 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import json
+import os
 from datetime import datetime
 
 # Configuration
 API_URL = "http://serving-api:8080"
-N8N_WEBHOOK_URL = "http://n8n:5678/webhook/notify-user"
+N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://n8n:5678").rstrip("/")
+N8N_WORKFLOW_ID = os.getenv("N8N_WORKFLOW_ID", "report-workflow-1")
+
+# n8n v2 can register workflow-scoped webhook paths like:
+# /webhook/{workflowId}/{encoded-node-name}/{path}
+# In this project, the encoded node segment requires double URL encoding.
+N8N_SCOPED_WEBHOOK_NODE_SEGMENT = os.getenv(
+    "N8N_SCOPED_WEBHOOK_NODE_SEGMENT",
+    "webhook%2520-%2520generate%2520report"
+)
+
+N8N_REPORT_WEBHOOK_CANDIDATES = [
+    f"{N8N_BASE_URL}/webhook/generate-report",
+    f"{N8N_BASE_URL}/webhook/generate-report/",
+    f"{N8N_BASE_URL}/webhook/{N8N_WORKFLOW_ID}/{N8N_SCOPED_WEBHOOK_NODE_SEGMENT}/generate-report",
+    f"{N8N_BASE_URL}/webhook/{N8N_WORKFLOW_ID}/{N8N_SCOPED_WEBHOOK_NODE_SEGMENT}/generate-report/",
+    f"{N8N_BASE_URL}/webhook-test/generate-report",
+    f"{N8N_BASE_URL}/webhook-test/generate-report/",
+]
+
+
+def call_n8n_report_webhook(payload: dict) -> tuple[requests.Response, str]:
+    """Try multiple production/test webhook URL variants before returning the last response."""
+    last_response = None
+    for url in N8N_REPORT_WEBHOOK_CANDIDATES:
+        response = requests.post(url, json=payload, timeout=60)
+        if response.status_code != 404:
+            mode = "test" if "/webhook-test/" in url else "production"
+            return response, mode
+        last_response = response
+
+    mode = "test" if N8N_REPORT_WEBHOOK_CANDIDATES and "/webhook-test/" in N8N_REPORT_WEBHOOK_CANDIDATES[-1] else "production"
+    return last_response, mode
 
 # Questions DASS-42 (éléments sélectionnés)
 DASS42_QUESTIONS = {
@@ -112,6 +145,8 @@ if "predictions_history" not in st.session_state:
     st.session_state.predictions_history = []
 if "last_prediction" not in st.session_state:
     st.session_state.last_prediction = None
+if "last_ai_report" not in st.session_state:
+    st.session_state.last_ai_report = None
 
 page = st.sidebar.radio("Navigation", ["Prédiction", "Saisie Docteur"])
 
@@ -124,7 +159,6 @@ with st.sidebar:
 
         model_info = requests.get(f"{API_URL}/model-info", timeout=5).json()
         st.metric("Total retours", model_info.get("total_feedbacks", 0))
-        st.metric("Prochain réentraînement", model_info.get("next_retrain_at", "N/A"))
         st.metric("Type du modèle", model_info.get("model_type", "N/A"))
     except Exception as e:
         st.error(f"API non joignable : {e}")
@@ -283,18 +317,19 @@ for question_id, question_text in DASS42_QUESTIONS.items():
 dass42_total = sum(dass42_scores)
 st.metric("Score DASS-42 Total", f"{dass42_total} / 24")
 
-# Optionnel : Email pour notification
-user_email = st.text_input("Email (pour notification par agent IA)", placeholder="utilisateur@exemple.com")
+# Optionnel : Contexte additionnel pour le rapport IA
+clinical_context = st.text_area(
+    "Contexte clinique additionnel (optionnel)",
+    placeholder="Ajoutez des observations utiles pour enrichir le rapport..."
+)
 
-# Bouton de Prédiction
-col_pred, col_notify = st.columns(2)
+# Boutons d'action
+col_pred, _ = st.columns(2)
 
 with col_pred:
     predict_btn = st.button("Prédire", type="primary", use_container_width=True)
 
-with col_notify:
-    notify_btn = st.button("Notifier l'utilisateur (Agent IA)", use_container_width=True,
-                           disabled=st.session_state.last_prediction is None)
+report_btn = False
 
 # Handle Prediction 
 if predict_btn:
@@ -352,8 +387,9 @@ if predict_btn:
             **normalized_result,
             "input_data": input_data,
             "timestamp": datetime.now().isoformat(),
-            "user_email": user_email
+            "clinical_context": clinical_context
         }
+        st.session_state.last_ai_report = None
 
         # Ajout à l'historique
         st.session_state.predictions_history.append({
@@ -406,34 +442,71 @@ if predict_btn:
     except Exception as e:
         st.error(f"Erreur : {e}")
 
-# Gestion de la Notification (Agent IA)
-if notify_btn and st.session_state.last_prediction:
+if st.session_state.last_prediction:
+    st.markdown("---")
+    report_btn = st.button(
+        "Générer un rapport synthétique IA",
+        use_container_width=True
+    )
+
+# Génération d'un rapport synthétique via n8n + ChatGPT
+if report_btn and st.session_state.last_prediction:
     pred = st.session_state.last_prediction
-    if not pred.get("user_email"):
-        st.warning("Veuillez fournir une adresse email pour notifier l'utilisateur.")
-    else:
-        try:
-            payload = {
-                "email": pred["user_email"],
-                "prediction": pred["prediction"],
-                "prediction_label": pred["prediction_label"],
-                "probability_yes": pred["probability_yes"],
-                "probability_no": pred["probability_no"],
-                "embedding": pred["embedding"],
-                "input_data": pred["input_data"],
-                "timestamp": pred["timestamp"]
-            }
+    try:
+        payload = {
+            "prediction": pred["prediction"],
+            "prediction_label": pred["prediction_label"],
+            "probability_yes": pred["probability_yes"],
+            "probability_no": pred["probability_no"],
+            "embedding": pred.get("embedding", []),
+            "input_data": pred["input_data"],
+            "timestamp": pred["timestamp"],
+            "clinical_context": pred.get("clinical_context", "")
+        }
 
-            with st.spinner("Envoi de la notification via l'agent IA (n8n)..."):
-                response = requests.post(N8N_WEBHOOK_URL, json=payload, timeout=30)
+        with st.spinner("Génération du rapport professionnel via n8n..."):
+            response, webhook_mode = call_n8n_report_webhook(payload)
 
-            if response.status_code == 200:
-                st.success("Notification envoyée avec succès via l'agent IA !")
-                st.info("L'utilisateur recevra un email avec les détails de la prédiction et un lien pour donner son avis.")
+        if response.status_code == 200:
+            report_text = None
+            try:
+                response_json = response.json()
+                report_text = (
+                    response_json.get("report")
+                    or response_json.get("content")
+                    or response_json.get("message")
+                )
+            except ValueError:
+                report_text = response.text
+
+            if report_text:
+                st.session_state.last_ai_report = {
+                    "content": report_text,
+                    "created_at": datetime.now().isoformat()
+                }
+                st.success("Rapport IA généré avec succès.")
+                if webhook_mode == "test":
+                    st.info(
+                        "Rapport généré via le webhook test n8n. "
+                        "Activez le workflow pour utiliser le webhook de production."
+                    )
             else:
-                st.warning(f"L'agent a répondu avec le statut {response.status_code} : {response.text}")
+                st.warning("La réponse n8n ne contient pas de rapport exploitable.")
+        else:
+            if response.status_code == 404:
+                st.warning(
+                    "Webhook n8n introuvable. Vérifiez que le workflow est importé et que le chemin "
+                    "est bien /webhook/generate-report (ou /webhook-test/generate-report en mode test)."
+                )
+            else:
+                st.warning(f"n8n a répondu avec le statut {response.status_code} : {response.text}")
 
-        except requests.exceptions.ConnectionError:
-            st.warning("Agent n8n non joignable. Vérifiez que le conteneur n8n est en cours d'exécution.")
-        except Exception as e:
-            st.error(f"Erreur lors de l'envoi de la notification : {e}")
+    except requests.exceptions.ConnectionError:
+        st.warning("Agent n8n non joignable. Vérifiez que le conteneur n8n est en cours d'exécution.")
+    except Exception as e:
+        st.error(f"Erreur lors de la génération du rapport : {e}")
+
+if st.session_state.last_ai_report:
+    st.header("Rapport Synthétique Professionnel")
+    st.caption(f"Généré le {st.session_state.last_ai_report['created_at'][:19]}")
+    st.markdown(st.session_state.last_ai_report["content"])

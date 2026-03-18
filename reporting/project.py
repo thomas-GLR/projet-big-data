@@ -92,6 +92,29 @@ def create_workspace() -> Workspace:
     return ws
 
 
+def prepare_for_reporting(reference: pd.DataFrame, production: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Normalize numeric columns to reduce NaN/inf warnings in report calculations."""
+    ref = reference.copy()
+    prod = production.copy()
+
+    for col in NUMERICAL_COLUMNS:
+        if col in ref.columns:
+            ref[col] = pd.to_numeric(ref[col], errors="coerce")
+        if col in prod.columns:
+            prod[col] = pd.to_numeric(prod[col], errors="coerce")
+
+        ref_median = ref[col].median() if col in ref.columns else 0.0
+        if pd.isna(ref_median):
+            ref_median = 0.0
+
+        if col in ref.columns:
+            ref[col] = ref[col].replace([np.inf, -np.inf], np.nan).fillna(ref_median)
+        if col in prod.columns:
+            prod[col] = prod[col].replace([np.inf, -np.inf], np.nan).fillna(ref_median)
+
+    return ref, prod
+
+
 def create_project(ws: Workspace) -> Project:
     """Create a new Evidently project."""
     project = ws.create_project(PROJECT_NAME)
@@ -150,6 +173,8 @@ def main():
     print("\n2. Loading production data...")
     prod_data = load_production_data()
     print(f"   Production data shape: {prod_data.shape}")
+
+    ref_data, prod_data = prepare_for_reporting(ref_data, prod_data)
 
     # Create workspace and project
     print("\n3. Creating Evidently workspace and project...")
