@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import json
@@ -111,6 +112,37 @@ if "last_prediction" not in st.session_state:
     st.session_state.last_prediction = None
 
 
+def normalize_prediction_payload(payload: dict) -> dict:
+    """Normalize API payload to a stable structure used by this UI."""
+    prediction_proba = payload.get("prediction_proba", [])
+
+    if "prediction" in payload:
+        prediction = payload["prediction"]
+    elif prediction_proba:
+        prediction = int(np.argmax(prediction_proba))
+    else:
+        prediction = None
+
+    # Binary compatibility for older payloads; multiclass falls back to confidence score.
+    if "probability_yes" in payload and "probability_no" in payload:
+        probability_yes = payload["probability_yes"]
+        probability_no = payload["probability_no"]
+    elif len(prediction_proba) == 2:
+        probability_no = float(prediction_proba[0])
+        probability_yes = float(prediction_proba[1])
+    else:
+        confidence = float(payload.get("proba_label", 0.0))
+        probability_yes = confidence
+        probability_no = None
+
+    return {
+        **payload,
+        "prediction": prediction,
+        "probability_yes": probability_yes,
+        "probability_no": probability_no,
+    }
+
+
 # Sidebar
 with st.sidebar:
     st.header("Statut du Système")
@@ -128,27 +160,32 @@ with st.sidebar:
     st.header("Historique des Prédictions")
     if st.session_state.predictions_history:
         hist_df = pd.DataFrame(st.session_state.predictions_history)
-        # Distribution des prédictions
-        fig_hist = px.histogram(
-            hist_df, x="prediction_label",
-            color="prediction_label",
-            title="Distribution des Prédictions",
-            color_discrete_map={"Yes": "#ff6b6b", "No": "#51cf66"}
-        )
-        st.plotly_chart(fig_hist, use_container_width=True)
 
-        # Score de risque au fil du temps
-        fig_proba = px.line(
-            hist_df, y="probability_yes",
-            title="Score de Risque au Fil du Temps",
-            labels={"probability_yes": "P(Oui)", "index": "Prédiction #"}
-        )
-        fig_proba.add_hline(y=0.5, line_dash="dash", line_color="red")
-        st.plotly_chart(fig_proba, use_container_width=True)
+        if "prediction_label" in hist_df.columns:
+            # Distribution des prédictions
+            fig_hist = px.histogram(
+                hist_df, x="prediction_label",
+                color="prediction_label",
+                title="Distribution des Prédictions"
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
 
-        # Taux d'alerte
-        alert_rate = len(hist_df[hist_df["prediction"] == 1]) / len(hist_df) * 100
-        st.metric("Taux d'Alerte", f"{alert_rate:.1f}%")
+        if "probability_yes" in hist_df.columns:
+            # Score de risque/confiance au fil du temps
+            fig_proba = px.line(
+                hist_df.reset_index(), x="index", y="probability_yes",
+                title="Score de Risque/Confiance au Fil du Temps",
+                labels={"probability_yes": "Score", "index": "Prédiction #"}
+            )
+            fig_proba.add_hline(y=0.5, line_dash="dash", line_color="red")
+            st.plotly_chart(fig_proba, use_container_width=True)
+
+        # Taux d'alerte (fallback robuste)
+        if "prediction" in hist_df.columns and len(hist_df) > 0:
+            alert_rate = len(hist_df[hist_df["prediction"] == 1]) / len(hist_df) * 100
+            st.metric("Taux d'Alerte", f"{alert_rate:.1f}%")
+        else:
+            st.metric("Taux d'Alerte", "N/A")
     else:
         st.info("Aucune prédiction pour le moment.")
 
@@ -281,6 +318,14 @@ if predict_btn:
             response = requests.post(f"{API_URL}/predict", json=input_data, timeout=10)
             result = response.json()
 
+        # Do not continue with API error payloads (e.g. {"detail": ...}).
+        if response.status_code >= 400:
+            error_detail = result.get("detail", response.text)
+            st.error(f"Erreur API ({response.status_code}) : {error_detail}")
+            st.stop()
+
+        result = normalize_prediction_payload(result)
+
         st.session_state.last_prediction = {
             **result,
             "input_data": input_data,
@@ -303,10 +348,13 @@ if predict_btn:
                 st.success(f"Condition de Santé Mentale : **{result['prediction_label']}**")
 
         with res_col2:
-            st.metric("Probabilité (Oui)", f"{result['probability_yes']:.2%}")
+            st.metric("Score (classe prédite)", f"{result['probability_yes']:.2%}")
 
         with res_col3:
-            st.metric("Probabilité (Non)", f"{result['probability_no']:.2%}")
+            if result["probability_no"] is not None:
+                st.metric("Probabilité (Non)", f"{result['probability_no']:.2%}")
+            else:
+                st.metric("Probabilité (Non)", "N/A")
 
     except requests.exceptions.ConnectionError:
         st.error("Impossible de se connecter à l'API de prédiction. Vérifiez que le conteneur serving est en cours d'exécution.")
@@ -324,8 +372,8 @@ if notify_btn and st.session_state.last_prediction:
                 "email": pred["user_email"],
                 "prediction": pred["prediction"],
                 "prediction_label": pred["prediction_label"],
-                "probability_yes": pred["probability_yes"],
-                "probability_no": pred["probability_no"],
+                "probability_yes": pred.get("probability_yes"),
+                "probability_no": pred.get("probability_no"),
                 "embedding": pred["embedding"],
                 "input_data": pred["input_data"],
                 "timestamp": pred["timestamp"]

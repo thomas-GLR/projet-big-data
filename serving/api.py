@@ -9,11 +9,13 @@ import pandas as pd
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 import csv
 import threading
-from scripts import transform_single_input
-from scripts import retrain_model
+
+from scripts.utils import (
+    transform_single_input, retrain_model
+)
 
 app = FastAPI(
     title="Mental Health Prediction API",
@@ -88,12 +90,12 @@ class PredictionInput(BaseModel):
     familysize: int
     education: int
     urban: int
-    gender: str
-    hand: str
-    religion: str
-    orientation: str
-    race: str
-    married: str
+    gender: int
+    hand: int
+    religion: int
+    orientation: int
+    race: int
+    married: int
 
 
 class PredictionResponse(BaseModel):
@@ -117,8 +119,23 @@ class FeedbackResponse(BaseModel):
 # --- Helper functions ---
 def transform_input(data: dict) -> np.ndarray:
     """Transform raw input through the preprocessing pipeline."""
-    input = transform_single_input(data, scaler, label_encoder, target_encoder)
+    input = transform_single_input(data, label_encoder, target_encoder)
     return scaler.transform(input)
+
+
+def normalize_prediction_payload(data: dict) -> dict:
+    """Normalize categorical payload values to reduce client-side format issues."""
+    normalized = data.copy()
+    categorical_fields = ["gender", "hand", "religion", "orientation", "race", "married"]
+
+    for field in categorical_fields:
+        value = normalized.get(field)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.lstrip("+-").isdigit():
+                normalized[field] = int(stripped)
+
+    return normalized
 
 
 # --- API Endpoints ---
@@ -139,7 +156,7 @@ def predict(data: PredictionInput):
     Returns prediction, probabilities, and the embedding vector.
     """
     try:
-        input_dict = data.model_dump()
+        input_dict = normalize_prediction_payload(data.model_dump())
         X_transformed = transform_input(input_dict)
 
         with model_lock:
