@@ -421,7 +421,7 @@ def clean_dataset_and_save(file_name = 'dataset.csv', sep = ',') -> pd.DataFrame
     df = df[df["testelapse"] > 120]
 
 
-    print(f"Deleting {df[(df['VCL6'] == 1) & (df['VCL9'] == 1) & (df['VCL12'] == 1)].shape} rows with VCL6, VCL9, or VCL12 equal to 1")
+    print(f"Deleting {df[(df['VCL6'] == 1) | (df['VCL9'] == 1) | (df['VCL12'] == 1)].shape} rows with VCL6, VCL9, or VCL12 equal to 1")
     # Remove rows if they have VCL6, VCL9, or VCL12 equal to 1 (indicating they said that they know invented words)
     df = df[(df["VCL6"] == 0) & (df["VCL9"] == 0) & (df["VCL12"] == 0)]
 
@@ -431,11 +431,11 @@ def clean_dataset_and_save(file_name = 'dataset.csv', sep = ',') -> pd.DataFrame
     print(f"Deleting {df[df['variance'] <= 0.05].shape} rows with variance of their answers to the 42 questions less than 0.05")
     df = df[df["variance"] > 0.05]
 
-    print(f"Deleting {df[(df['age'] < 17) & (df['age'] > 90)].shape} rows with age less than 17 or greater than 90")
+    print(f"Deleting {df[(df['age'] < 17) | (df['age'] > 90)].shape} rows with age less than 17 or greater than 90")
     # The dass-42 test is for adults or old adolescents (17+), so remove rows if they have age less than 17 or greater than 90 (indicating they probably made a mistake in their age)
     df = df[(df["age"] >= 17) & (df["age"] <= 90)]
 
-    print(f"Deleting {df[(df['gender'] == 0) & (df['gender'] > 3)].shape} rows with gender less than 1 or greater than 3")
+    print(f"Deleting {df[(df['gender'] == 0) | (df['gender'] > 3)].shape} rows with gender less than 1 or greater than 3")
     # Some rows have 0 but it's not a possible value for (1=Male, 2=Female, 3=Other)
     df = df[(df["gender"] > 0) & (df["gender"] <= 3)]
 
@@ -850,248 +850,6 @@ def run_classifiers_cv(
     return best_model, test_accuracy
 
 
-def run_classifiers_cv_clfs_rgs(clfs_par_nom, X, Y):
-    cv_scores_par_nom_model = {}
-    result_from_all_model = []
-    nombre_fold = 5
-    kf = KFold(n_splits=nombre_fold, shuffle=True, random_state=0)
-
-    # Détecter le type de modèle à partir du premier modèle
-    first_clf = next(iter(clfs_par_nom.values()))
-    is_regression = is_regressor(first_clf)
-
-    if is_regression:
-        scoring = {
-            "mae": make_scorer(mean_absolute_error, greater_is_better=False),
-            "r2": "r2",
-            "rmse": make_scorer(lambda y, y_pred: np.sqrt(mean_squared_error(y, y_pred)),
-                        greater_is_better=False),
-        }
-        columns = [
-            "MAE moyenne", "MAE écart type",
-            "RMSE moyenne", "RMSE écart type",
-            "R² moyen", "R² écart type",
-            "Temps moyen par fold"
-        ]
-    else:
-        scoring = {
-            "accuracy": "accuracy",
-            "roc_auc": make_scorer(
-                roc_auc_score,
-                multi_class="ovr",
-                average="macro",
-                needs_proba=True
-            ),
-            "precision": make_scorer(precision_score, average="macro", zero_division=0),
-            "recall": make_scorer(recall_score, average="macro", zero_division=0),
-        }
-        columns = [
-            "Accuracy moyenne", "Accuracy écart type",
-            "AUC moyenne", "AUC écart type",
-            "Précision moyenne", "Précision écart type",
-            "Recall moyen", "Recall écart type",
-            "Temps moyen par fold"
-        ]
-
-    for nom_model, clf in clfs_par_nom.items():
-        print(f"Cross-validation pour {nom_model}...")
-        # resultats = cross_validate(clf, X, Y, cv=kf, scoring=scoring)
-
-        pipeline = Pipeline([
-            ('scaler', StandardScaler()),  # fit seulement sur le train fold
-            ('clf',clf)
-        ])
-
-        resultats = cross_validate(pipeline, X, Y, cv=kf, scoring=scoring, return_train_score=True)
-
-        print(f"\tTrain MAE  : {-resultats['train_mae'].mean():.4f} ± {resultats['train_mae'].std():.4f}")
-        print(f"\tTrain RMSE : {-resultats['train_rmse'].mean():.4f} ± {resultats['train_rmse'].std():.4f}")
-        print(f"\tTrain R²   : {resultats['train_r2'].mean():.4f} ± {resultats['train_r2'].std():.4f}")
-
-        print(f"\tTest MAE  : {-resultats['test_mae'].mean():.4f} ± {resultats['test_mae'].std():.4f}")
-        print(f"\tTest RMSE : {-resultats['test_rmse'].mean():.4f} ± {resultats['test_rmse'].std():.4f}")
-        print(f"\tTest R²   : {resultats['test_r2'].mean():.4f} ± {resultats['test_r2'].std():.4f}")
-        print(f"\tTemps par fold : {resultats['score_time'].mean()}")
-
-        # score_time = resultats["score_time"]
-        #
-        # if is_regression:
-        #     mae = np.abs(resultats["test_mae"])
-        #     rmse = np.abs(resultats["test_rmse"])
-        #     r2 = resultats["test_r2"]
-        #
-        #     cv_scores_par_nom_model[nom_model] = r2.mean()
-        #
-        #     result_from_all_model.append([
-        #         mae.mean(), mae.std(),
-        #         rmse.mean(), rmse.std(),
-        #         r2.mean(), r2.std(),
-        #         score_time.mean()
-        #     ])
-        # else:
-        #     accuracy = resultats["test_accuracy"]
-        #     auc = resultats["test_roc_auc"]
-        #     precision = resultats["test_precision"]
-        #     recall = resultats["test_recall"]
-        #
-        #     cv_scores_par_nom_model[nom_model] = np.mean(accuracy)
-        #
-        #     result_from_all_model.append([
-        #         accuracy.mean(), accuracy.std(),
-        #         auc.mean(), auc.std(),
-        #         precision.mean(), precision.std(),
-        #         recall.mean(), recall.std(),
-        #         score_time.mean()
-        #     ])
-
-    # rows = list(clfs_par_nom.keys())
-    # df = pd.DataFrame(result_from_all_model, columns=columns, index=rows)
-    # print(df)
-
-    # best_model, score_final_max = max(cv_scores_par_nom_model.items(), key=lambda kv: kv[1])
-
-    # return best_model, score_final_max
-
-
-def run_classifiers_cv_clfs_rgs_with_hold_out(clfs_par_nom, X, Y, holdout_size=0.15):
-    cv_scores_par_nom_model = {}
-    result_from_all_model = []
-    nombre_fold = 5
-
-    # --- Séparation hold-out AVANT tout traitement ---
-    X_dev, X_holdout, Y_dev, Y_holdout = train_test_split(
-        X, Y,
-        test_size=holdout_size,
-        random_state=0,
-        stratify=Y  # retire stratify=Y si régression pure sur valeurs continues
-    )
-    print(f"Taille dev : {X_dev.shape[0]} | Taille hold-out : {X_holdout.shape[0]}\n")
-
-    kf = KFold(n_splits=nombre_fold, shuffle=True, random_state=0)
-
-    # Détecter le type de modèle à partir du premier modèle
-    first_clf = next(iter(clfs_par_nom.values()))
-    is_regression = is_regressor(first_clf)
-
-    if is_regression:
-        scoring = {
-            "mae": make_scorer(mean_absolute_error, greater_is_better=False),
-            "r2": "r2",
-            "rmse": make_scorer(lambda y, y_pred: np.sqrt(mean_squared_error(y, y_pred)),
-                        greater_is_better=False),
-        }
-        columns = [
-            "MAE moyenne", "MAE écart type",
-            "RMSE moyenne", "RMSE écart type",
-            "R² moyen", "R² écart type",
-            "Temps moyen par fold",
-            "Holdout MAE", "Holdout RMSE", "Holdout R²"  # <-- colonnes holdout
-        ]
-    else:
-        scoring = {
-            "accuracy": "accuracy",
-            "roc_auc": make_scorer(
-                roc_auc_score,
-                multi_class="ovr",
-                average="macro",
-                needs_proba=True
-            ),
-            "precision": make_scorer(precision_score, average="macro", zero_division=0),
-            "recall": make_scorer(recall_score, average="macro", zero_division=0),
-        }
-        columns = [
-            "Accuracy moyenne", "Accuracy écart type",
-            "AUC moyenne", "AUC écart type",
-            "Précision moyenne", "Précision écart type",
-            "Recall moyen", "Recall écart type",
-            "Temps moyen par fold",
-            "Holdout Accuracy", "Holdout AUC"  # <-- colonnes holdout
-        ]
-
-    for nom_model, clf in clfs_par_nom.items():
-        print(f"Cross-validation pour {nom_model}...")
-
-        pipeline = Pipeline([
-            ('scaler', StandardScaler()),
-            ('clf', clf)
-        ])
-
-        # --- Cross-validation sur X_dev uniquement ---
-        resultats = cross_validate(pipeline, X_dev, Y_dev, cv=kf, scoring=scoring, return_train_score=True)
-
-        if is_regression:
-            print(f"\tTrain MAE  : {-resultats['train_mae'].mean():.4f} ± {resultats['train_mae'].std():.4f}")
-            print(f"\tTrain RMSE : {-resultats['train_rmse'].mean():.4f} ± {resultats['train_rmse'].std():.4f}")
-            print(f"\tTrain R²   : {resultats['train_r2'].mean():.4f} ± {resultats['train_r2'].std():.4f}")
-            print(f"\tTest MAE   : {-resultats['test_mae'].mean():.4f} ± {resultats['test_mae'].std():.4f}")
-            print(f"\tTest RMSE  : {-resultats['test_rmse'].mean():.4f} ± {resultats['test_rmse'].std():.4f}")
-            print(f"\tTest R²    : {resultats['test_r2'].mean():.4f} ± {resultats['test_r2'].std():.4f}")
-        else:
-            print(f"\tTrain Accuracy : {resultats['train_accuracy'].mean():.4f} ± {resultats['train_accuracy'].std():.4f}")
-            print(f"\tTest Accuracy  : {resultats['test_accuracy'].mean():.4f} ± {resultats['test_accuracy'].std():.4f}")
-
-        # --- Entraînement final sur tout X_dev + éval holdout ---
-        pipeline.fit(X_dev, Y_dev)
-        print(f"\n\t--- Évaluation Hold-out ({holdout_size*100:.0f}%) ---")
-
-        if is_regression:
-            Y_pred_holdout = pipeline.predict(X_holdout)
-            h_mae  = mean_absolute_error(Y_holdout, Y_pred_holdout)
-            h_rmse = np.sqrt(mean_squared_error(Y_holdout, Y_pred_holdout))
-            h_r2   = pipeline.score(X_holdout, Y_holdout)
-
-            print(f"\tHoldout MAE  : {h_mae:.4f}  (CV : {-resultats['test_mae'].mean():.4f})")
-            print(f"\tHoldout RMSE : {h_rmse:.4f}  (CV : {-resultats['test_rmse'].mean():.4f})")
-            print(f"\tHoldout R²   : {h_r2:.4f}  (CV : {resultats['test_r2'].mean():.4f})")
-
-            # Alerte si écart CV/holdout trop grand
-            if abs(h_r2 - resultats['test_r2'].mean()) > 0.05:
-                print(f"\t⚠️  Écart R² CV/Holdout > 0.05 — leakage ou overfitting possible !")
-            else:
-                print(f"\t✅ Écart CV/Holdout faible — pas de leakage détecté")
-
-            cv_scores_par_nom_model[nom_model] = resultats['test_r2'].mean()
-            result_from_all_model.append([
-                -resultats['test_mae'].mean(), resultats['test_mae'].std(),
-                -resultats['test_rmse'].mean(), resultats['test_rmse'].std(),
-                resultats['test_r2'].mean(), resultats['test_r2'].std(),
-                resultats['score_time'].mean(),
-                h_mae, h_rmse, h_r2
-            ])
-        else:
-            Y_pred_holdout = pipeline.predict(X_holdout)
-            Y_proba_holdout = pipeline.predict_proba(X_holdout)
-            h_accuracy = accuracy_score(Y_holdout, Y_pred_holdout)
-            h_auc = roc_auc_score(Y_holdout, Y_proba_holdout, multi_class="ovr", average="macro")
-
-            print(f"\tHoldout Accuracy : {h_accuracy:.4f}  (CV : {resultats['test_accuracy'].mean():.4f})")
-            print(f"\tHoldout AUC      : {h_auc:.4f}  (CV : {resultats['test_roc_auc'].mean():.4f})")
-
-            if abs(h_accuracy - resultats['test_accuracy'].mean()) > 0.05:
-                print(f"\t⚠️  Écart Accuracy CV/Holdout > 0.05 — leakage ou overfitting possible !")
-            else:
-                print(f"\t✅ Écart CV/Holdout faible — pas de leakage détecté")
-
-            cv_scores_par_nom_model[nom_model] = resultats['test_accuracy'].mean()
-            result_from_all_model.append([
-                resultats['test_accuracy'].mean(), resultats['test_accuracy'].std(),
-                resultats['test_roc_auc'].mean(), resultats['test_roc_auc'].std(),
-                resultats['test_precision'].mean(), resultats['test_precision'].std(),
-                resultats['test_recall'].mean(), resultats['test_recall'].std(),
-                resultats['score_time'].mean(),
-                h_accuracy, h_auc
-            ])
-
-        print()
-
-    rows = list(clfs_par_nom.keys())
-    df = pd.DataFrame(result_from_all_model, columns=columns, index=rows)
-    print(df)
-
-    best_model, score_final_max = max(cv_scores_par_nom_model.items(), key=lambda kv: kv[1])
-    return best_model, score_final_max, df
-
-
 def importance_variables(X, Y, nom_cols):
     clf = RandomForestClassifier(n_estimators=1000, random_state=1)
     clf.fit(X, Y)
@@ -1133,24 +891,3 @@ def evaluate_model(model_name: str, y_model, Ytest, y_proba) -> Result:
         f1_score=f1_macros,
         roc_auc=roc_aucs
     )
-
-
-# def selection_nombre_optimal_variables(Xtrain, Ytrain, Xtest, Ytest, sorted_idx):
-#     model = MLPClassifier(hidden_layer_sizes=(40, 20), random_state=1)
-#
-#     scores = np.zeros(Xtrain.shape[1])
-#     for f in np.arange(0, Xtrain.shape[1]):
-#         X1_f = Xtrain[:, sorted_idx[:f + 1]]
-#         X2_f = Xtest[:, sorted_idx[:f + 1]]
-#
-#         model.fit(X1_f, Ytrain)
-#         y_model = model.predict(X2_f)
-#
-#         scores[f] = np.round(metrics.accuracy_score(Ytest, y_model), 3)
-#
-#     plt.plot(scores)
-#     plt.xlabel("Nombre de Variables")
-#     plt.ylabel("Accuracy")
-#     plt.title("Evolution de l'accuracy en fonction des variables")
-#     plt.show()
-
