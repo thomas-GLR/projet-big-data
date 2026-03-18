@@ -307,7 +307,7 @@ def create_ref_data(df: pd.DataFrame, output_filepath: str):
 
 def train_model(X: np.ndarray, y: np.ndarray, save: bool = True):
     """
-    Train a RandomForest classifier and optionally save it.
+    Train a LogisticRegression classifier and optionally save it.
     Returns the trained model and evaluation metrics.
     """
     X_train, X_test, y_train, y_test = train_test_split(
