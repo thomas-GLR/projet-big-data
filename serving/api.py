@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from typing import Optional
 import csv
 import threading
+from scripts import transform_single_input
+from scripts import retrain_model
 
 app = FastAPI(
     title="Mental Health Prediction API",
@@ -24,21 +26,12 @@ ARTIFACTS_DIR = "/artifacts"
 DATA_DIR = "/data"
 RETRAIN_THRESHOLD = 10  # Retrain every k feedbacks
 
-# --- Feature definitions ---
-FEATURE_COLS = ["Age", "Gender", "Occupation", "Country", "Severity",
-                "Consultation_History", "Stress_Level", "Sleep_Hours",
-                "Work_Hours", "Physical_Activity_Hours"]
-
-CATEGORICAL_COLS = ["Gender", "Occupation", "Country", "Severity",
-                    "Consultation_History", "Stress_Level"]
-
-N_PCA_COMPONENTS = 5
 
 # --- Global model variables (loaded at startup) ---
 model = None
 scaler = None
-pca = None
-label_encoders = None
+target_encoder = None
+label_encoder = None
 model_lock = threading.Lock()
 
 
@@ -58,11 +51,11 @@ def save_artifact(obj, filename: str):
 
 def load_all_artifacts():
     """Load all model artifacts into global variables."""
-    global model, scaler, pca, label_encoders
+    global model, scaler, label_encoder, target_encoder
     model = load_artifact("model.pkl")
     scaler = load_artifact("scaler.pkl")
-    pca = load_artifact("pca.pkl")
-    label_encoders = load_artifact("label_encoders.pkl")
+    label_encoder = load_artifact("label_encoder.pkl")
+    target_encoder = load_artifact("target_encoder.pkl")
     print("All artifacts loaded successfully.")
 
 
@@ -73,8 +66,7 @@ def startup_event():
     # Initialize prod_data.csv if it doesn't exist
     prod_path = os.path.join(DATA_DIR, "prod_data.csv")
     if not os.path.exists(prod_path):
-        pca_columns = [f"pca_{i}" for i in range(N_PCA_COMPONENTS)]
-        header = pca_columns + ["prediction", "user_feedback", "target"]
+        header = ["prediction", "user_feedback", "target"]
         with open(prod_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(header)
@@ -83,31 +75,38 @@ def startup_event():
 
 # --- Request/Response Models ---
 class PredictionInput(BaseModel):
-    Age: int
-    Gender: str
-    Occupation: str
-    Country: str
-    Severity: Optional[str] = "None"
-    Consultation_History: str
-    Stress_Level: str
-    Sleep_Hours: float
-    Work_Hours: float
-    Physical_Activity_Hours: int
+    Q3A: int
+    Q10A: int
+    Q13A: int
+    Q16A: int
+    Q26A: int
+    Q34A: int
+    Q37A: int
+    Q38A: int
+    age: int
+    voted: int
+    familysize: int
+    education: int
+    urban: int
+    gender: str
+    hand: str
+    religion: str
+    orientation: str
+    race: str
+    married: str
 
 
 class PredictionResponse(BaseModel):
-    prediction: int
+    prediction_proba: list
     prediction_label: str
-    probability_no: float
-    probability_yes: float
+    proba_label: float
     embedding: list
 
 
 class FeedbackInput(BaseModel):
     embedding: list
     prediction: int
-    user_feedback: int  # 0 = No, 1 = Yes (real label from user)
-
+    user_feedback: int  # classe réelle (entre 0 et 4)
 
 class FeedbackResponse(BaseModel):
     message: str
@@ -118,63 +117,8 @@ class FeedbackResponse(BaseModel):
 # --- Helper functions ---
 def transform_input(data: dict) -> np.ndarray:
     """Transform raw input through the preprocessing pipeline."""
-    df = pd.DataFrame([data])
-    df["Severity"] = df["Severity"].fillna("None")
-
-    for col in CATEGORICAL_COLS:
-        if col in df.columns:
-            le = label_encoders[col]
-            df[col] = df[col].astype(str).apply(
-                lambda x: le.transform([x])[0] if x in le.classes_ else -1
-            )
-
-    X = df[FEATURE_COLS].values
-    X_scaled = scaler.transform(X)
-    X_embedded = pca.transform(X_scaled)
-    return X_embedded
-
-
-def retrain_model():
-    """Retrain the model on ref_data + prod_data and update artifacts."""
-    global model
-
-    ref_path = os.path.join(DATA_DIR, "ref_data.csv")
-    prod_path = os.path.join(DATA_DIR, "prod_data.csv")
-
-    ref_df = pd.read_csv(ref_path)
-    prod_df = pd.read_csv(prod_path)
-
-    # Only use rows with user_feedback
-    prod_df = prod_df[prod_df["user_feedback"].notna()].copy()
-    prod_df["target"] = prod_df["user_feedback"].astype(int)
-
-    pca_columns = [c for c in ref_df.columns if c.startswith("pca_")]
-    cols_to_use = pca_columns + ["target"]
-
-    combined_df = pd.concat([ref_df[cols_to_use], prod_df[cols_to_use]], ignore_index=True)
-
-    X = combined_df[pca_columns].values
-    y = combined_df["target"].values
-
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.model_selection import train_test_split
-
-    new_model = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=10,
-        random_state=42,
-        class_weight="balanced"
-    )
-    new_model.fit(X, y)
-
-    # Save new model artifact
-    save_artifact(new_model, "model.pkl")
-
-    # Update global model
-    with model_lock:
-        model = new_model
-
-    print(f"Model retrained on {len(combined_df)} samples and deployed.")
+    input = transform_single_input(data, scaler, label_encoder, target_encoder)
+    return scaler.transform(input)
 
 
 # --- API Endpoints ---
@@ -196,18 +140,20 @@ def predict(data: PredictionInput):
     """
     try:
         input_dict = data.model_dump()
-        X_embedded = transform_input(input_dict)
+        X_transformed = transform_input(input_dict)
 
         with model_lock:
-            prediction = int(model.predict(X_embedded)[0])
-            proba = model.predict_proba(X_embedded)[0]
+            prediction = model.predict(X_transformed)[0]
+            proba = model.predict_proba(X_transformed)[0]
+            labels_predictions = ["None", "Mild", "Moderate", "Severe", "Extremely severe"]
+            prediction = int(proba.argmax())
+            nom_prediction = labels_predictions[prediction]
 
         return PredictionResponse(
-            prediction=prediction,
-            prediction_label="Yes" if prediction == 1 else "No",
-            probability_no=float(proba[0]),
-            probability_yes=float(proba[1]),
-            embedding=X_embedded[0].tolist()
+            prediction_proba=proba.tolist(),
+            prediction_label=nom_prediction,
+            proba_label=proba[prediction],
+            embedding=X_transformed[0].tolist()
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -223,8 +169,9 @@ def submit_feedback(data: FeedbackInput):
         prod_path = os.path.join(DATA_DIR, "prod_data.csv")
 
         # Prepare the row
-        pca_values = data.embedding
-        row = pca_values + [data.prediction, data.user_feedback, data.user_feedback]
+        column_values = data.embedding
+        #TODO : verifier que les colonnes sont dans le bon ordre?
+        row = column_values + [data.prediction, data.user_feedback, data.user_feedback]
 
         # Append to prod_data.csv
         with open(prod_path, "a", newline="") as f:
@@ -265,7 +212,6 @@ def model_info():
 
     return {
         "model_type": type(model).__name__ if model else None,
-        "n_pca_components": N_PCA_COMPONENTS,
         "retrain_threshold": RETRAIN_THRESHOLD,
         "total_feedbacks": total_feedbacks,
         "next_retrain_at": ((total_feedbacks // RETRAIN_THRESHOLD) + 1) * RETRAIN_THRESHOLD
@@ -329,10 +275,10 @@ def feedback_form(embedding: str, prediction: int, email: str = ""):
             <input type="hidden" name="prediction" value="{prediction}">
             <input type="hidden" name="user_email" value="{email}">
             <button type="button" class="btn btn-confirm" onclick="submitFeedback({prediction})">
-                ✅ Confirm Prediction
+                 Confirm Prediction
             </button>
             <button type="button" class="btn btn-correct" onclick="submitFeedback({1 - prediction})">
-                ❌ Correct - It's {"No" if prediction == 1 else "Yes"}
+                 Correct - It's {"No" if prediction == 1 else "Yes"}
             </button>
         </form>
         <script>
@@ -349,10 +295,10 @@ def feedback_form(embedding: str, prediction: int, email: str = ""):
                 }})
                 .then(r => r.json())
                 .then(data => {{
-                    document.body.innerHTML = '<h1>✅ Thank you!</h1><p>Your feedback has been recorded.</p><p>' + data.message + '</p>';
+                    document.body.innerHTML = '<h1> Thank you!</h1><p>Your feedback has been recorded.</p><p>' + data.message + '</p>';
                 }})
                 .catch(err => {{
-                    document.body.innerHTML = '<h1>❌ Error</h1><p>' + err + '</p>';
+                    document.body.innerHTML = '<h1> Error</h1><p>' + err + '</p>';
                 }});
             }}
         </script>
