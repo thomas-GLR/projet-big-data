@@ -17,6 +17,9 @@ Pipeline MLOps complet pour la prédiction de conditions de santé mentale, incl
 
 ---
 
+## Lien dataset
+[mental_health_dataset.csv](https://www.kaggle.com/datasets/lucasgreenwell/depression-anxiety-stress-scales-responses)
+
 ## 🏗️ Architecture du Projet
 
 ```
