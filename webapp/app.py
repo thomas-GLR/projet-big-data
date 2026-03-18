@@ -12,6 +12,11 @@ API_URL = "http://serving-api:8080"
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://n8n:5678").rstrip("/")
 N8N_WORKFLOW_ID = os.getenv("N8N_WORKFLOW_ID", "report-workflow-1")
 
+# Robustification : si on est en local mais configuration docker, tenter localhost
+CANDIDATE_BASE_URLS = [N8N_BASE_URL]
+if "n8n:" in N8N_BASE_URL:
+    CANDIDATE_BASE_URLS.append(N8N_BASE_URL.replace("n8n:", "localhost:"))
+
 # n8n v2 can register workflow-scoped webhook paths like:
 # /webhook/{workflowId}/{encoded-node-name}/{path}
 # In this project, the encoded node segment requires double URL encoding.
@@ -20,25 +25,37 @@ N8N_SCOPED_WEBHOOK_NODE_SEGMENT = os.getenv(
     "webhook%2520-%2520generate%2520report"
 )
 
-N8N_REPORT_WEBHOOK_CANDIDATES = [
-    f"{N8N_BASE_URL}/webhook/generate-report",
-    f"{N8N_BASE_URL}/webhook/generate-report/",
-    f"{N8N_BASE_URL}/webhook/{N8N_WORKFLOW_ID}/{N8N_SCOPED_WEBHOOK_NODE_SEGMENT}/generate-report",
-    f"{N8N_BASE_URL}/webhook/{N8N_WORKFLOW_ID}/{N8N_SCOPED_WEBHOOK_NODE_SEGMENT}/generate-report/",
-    f"{N8N_BASE_URL}/webhook-test/generate-report",
-    f"{N8N_BASE_URL}/webhook-test/generate-report/",
-]
+N8N_REPORT_WEBHOOK_CANDIDATES = []
+for base in CANDIDATE_BASE_URLS:
+    N8N_REPORT_WEBHOOK_CANDIDATES.extend([
+        f"{base}/webhook/generate-report",
+        f"{base}/webhook/generate-report/",
+        f"{base}/webhook/{N8N_WORKFLOW_ID}/{N8N_SCOPED_WEBHOOK_NODE_SEGMENT}/generate-report",
+        f"{base}/webhook/{N8N_WORKFLOW_ID}/{N8N_SCOPED_WEBHOOK_NODE_SEGMENT}/generate-report/",
+        f"{base}/webhook-test/generate-report",
+        f"{base}/webhook-test/generate-report/",
+    ])
 
 
 def call_n8n_report_webhook(payload: dict) -> tuple[requests.Response, str]:
     """Try multiple production/test webhook URL variants before returning the last response."""
     last_response = None
     for url in N8N_REPORT_WEBHOOK_CANDIDATES:
-        response = requests.post(url, json=payload, timeout=60)
-        if response.status_code != 404:
-            mode = "test" if "/webhook-test/" in url else "production"
-            return response, mode
-        last_response = response
+        try:
+            response = requests.post(url, json=payload, timeout=60)
+            if response.status_code != 404:
+                mode = "test" if "/webhook-test/" in url else "production"
+                return response, mode
+            last_response = response
+        except requests.exceptions.ConnectionError:
+            continue
+        except Exception as e:
+            # Other errors, we might want to log or continue
+            continue
+    
+    if last_response is None:
+        # If all failed, raise the last exception or a generic one
+        raise requests.exceptions.ConnectionError("All n8n webhook candidates failed.")
 
     mode = "test" if N8N_REPORT_WEBHOOK_CANDIDATES and "/webhook-test/" in N8N_REPORT_WEBHOOK_CANDIDATES[-1] else "production"
     return last_response, mode
