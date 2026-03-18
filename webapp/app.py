@@ -110,6 +110,7 @@ if "predictions_history" not in st.session_state:
 if "last_prediction" not in st.session_state:
     st.session_state.last_prediction = None
 
+page = st.sidebar.radio("Navigation", ["Prédiction", "Saisie Docteur"])
 
 # Sidebar
 with st.sidebar:
@@ -151,6 +152,42 @@ with st.sidebar:
         st.metric("Taux d'Alerte", f"{alert_rate:.1f}%")
     else:
         st.info("Aucune prédiction pour le moment.")
+
+if page == "Saisie Docteur":
+    st.title("Saisie Docteur - Validation D'Expert")
+    st.write("Interface permettant aux docteurs de vérifier et de renseigner manuellement les résultats réels.")
+
+    if st.session_state.predictions_history:
+        for i, pred in enumerate(reversed(st.session_state.predictions_history)):
+            with st.expander(f"Cas #{len(st.session_state.predictions_history)-i} - Prédiction IA : {pred['prediction_label']} ({pred.get('timestamp', 'N/A')[:16]})"):
+                st.write(f"**Probabilité de condition (Oui)**: {pred['probability_yes']:.2%}")
+                if "input_data" in pred:
+                    st.json(pred["input_data"])
+
+                real_res = st.radio("Résultat réel du diagnostic :", ["En attente", "Condition Vérifiée (Oui)", "Pas de Condition (Non)"], key=f"radio_{i}")
+                
+                if st.button("Valider ce résultat", key=f"btn_val_{i}"):
+                    if real_res == "En attente":
+                        st.warning("Veuillez d'abord sélectionner le résultat réel.")
+                    else:
+                        feed_val = 1 if "Oui" in real_res else 0
+                        payload = {
+                            "embedding": pred["embedding"],
+                            "prediction": pred["prediction"],
+                            "user_feedback": feed_val
+                        }
+                        try:
+                            resp = requests.post(f"{API_URL}/feedback", json=payload, timeout=10)
+                            if resp.status_code == 200:
+                                st.success("Résultat manuel enregistré avec succès. Le modèle s'améliorera grâce à ce retour.")
+                            else:
+                                st.error("Erreur lors de l'enregistrement.")
+                        except Exception as e:
+                            st.error(f"API injoignable: {e}")
+    else:
+        st.info("Il n'y a pas encore de données ou de prédictions récentes à valider.")
+        
+    st.stop()
 
 
 # Formulaire Principal
