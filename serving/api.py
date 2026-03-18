@@ -9,9 +9,10 @@ import pandas as pd
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 import csv
 import threading
+
+from scripts import utils
 
 app = FastAPI(
     title="Mental Health Prediction API",
@@ -25,12 +26,13 @@ DATA_DIR = "/data"
 RETRAIN_THRESHOLD = 10  # Retrain every k feedbacks
 
 # --- Feature definitions ---
-FEATURE_COLS = ["Age", "Gender", "Occupation", "Country", "Severity",
-                "Consultation_History", "Stress_Level", "Sleep_Hours",
-                "Work_Hours", "Physical_Activity_Hours"]
+FEATURE_COLS = [
+    "Q3A", "Q10A", "Q13A", "Q16A", "Q26A", "Q34A", "Q37A", "Q38A",
+    "age", "voted", "familysize", "education", "urban",
+    "gender", "hand", "religion", "orientation", "race", "married"
+]
 
-CATEGORICAL_COLS = ["Gender", "Occupation", "Country", "Severity",
-                    "Consultation_History", "Stress_Level"]
+CATEGORICAL_COLS = ["gender", "hand", "religion", "orientation", "race", "married"]
 
 N_PCA_COMPONENTS = 5
 
@@ -83,23 +85,31 @@ def startup_event():
 
 # --- Request/Response Models ---
 class PredictionInput(BaseModel):
-    Age: int
-    Gender: str
-    Occupation: str
-    Country: str
-    Severity: Optional[str] = "None"
-    Consultation_History: str
-    Stress_Level: str
-    Sleep_Hours: float
-    Work_Hours: float
-    Physical_Activity_Hours: int
+    Q3A: int
+    Q10A: int
+    Q13A: int
+    Q16A: int
+    Q26A: int
+    Q34A: int
+    Q37A: int
+    Q38A: int
+    age: int
+    voted: int
+    familysize: int
+    education: int
+    urban: int
+    gender: str
+    hand: str
+    religion: str
+    orientation: str
+    race: str
+    married: str
 
 
 class PredictionResponse(BaseModel):
-    prediction: int
+    prediction_proba: list
     prediction_label: str
-    probability_no: float
-    probability_yes: float
+    proba_label: float
     embedding: list
 
 
@@ -119,7 +129,6 @@ class FeedbackResponse(BaseModel):
 def transform_input(data: dict) -> np.ndarray:
     """Transform raw input through the preprocessing pipeline."""
     df = pd.DataFrame([data])
-    df["Severity"] = df["Severity"].fillna("None")
 
     for col in CATEGORICAL_COLS:
         if col in df.columns:
@@ -129,8 +138,7 @@ def transform_input(data: dict) -> np.ndarray:
             )
 
     X = df[FEATURE_COLS].values
-    X_scaled = scaler.transform(X)
-    X_embedded = pca.transform(X_scaled)
+    X_embedded = utils.encode_categorical_columns(X)
     return X_embedded
 
 
@@ -199,14 +207,16 @@ def predict(data: PredictionInput):
         X_embedded = transform_input(input_dict)
 
         with model_lock:
-            prediction = int(model.predict(X_embedded)[0])
-            proba = model.predict_proba(X_embedded)[0]
+            prediction_proba = model.predict_proba(X_embedded)[0]  # Convert to integer class label
+            labels_predictions = ["None", "Mild", "Moderate", "Severe", "Extremely severe"]
+            prediction = int(prediction_proba.argmax())
+            nom_prediction = labels_predictions[prediction]
+
 
         return PredictionResponse(
-            prediction=prediction,
-            prediction_label="Yes" if prediction == 1 else "No",
-            probability_no=float(proba[0]),
-            probability_yes=float(proba[1]),
+            prediction_proba=prediction_proba,
+            prediction_label=nom_prediction,
+            proba_label=prediction_proba[prediction],
             embedding=X_embedded[0].tolist()
         )
     except Exception as e:
