@@ -62,14 +62,14 @@ def call_n8n_report_webhook(payload: dict) -> tuple[requests.Response, str]:
 
 # Questions DASS-42 (éléments sélectionnés)
 DASS42_QUESTIONS = {
-    "Q3A": "Je n'arrivais pas à ressentir aucun sentiment positif du tout",
-    "Q10A": "J'avais l'impression que je n'avais rien à attendre de l'avenir",
-    "Q13A": "Je me sentais triste et déprimé",
-    "Q16A": "J'avais l'impression d'avoir perdu l'intérêt pour presque tout",
-    "Q26A": "Je me sentais le cœur lourd et mélancolique",
-    "Q34A": "J'avais l'impression d'être rather sans valeur",
-    "Q37A": "Je ne voyais rien dans l'avenir auquel j'aurais pu m'accrocher",
-    "Q38A": "J'avais l'impression que la vie était sans sens"
+    "Q3A": "Je n'arrivais pas à ressentir de sentiment positif du tout",
+    "Q10A": "J'ai l'impression que je n'avais rien à attendre de l'avenir",
+    "Q13A": "Je me sens triste et déprimé",
+    "Q16A": "J'ai l'impression d'avoir perdu l'intérêt pour presque tout",
+    "Q26A": "Je me sens le cœur lourd et mélancolique",
+    "Q34A": "J'ai l'impression d'être sans valeur",
+    "Q37A": "Je ne vois rien dans l'avenir auquel je pourrais m'accrocher",
+    "Q38A": "J'ai l'impression que la vie était sans sens"
 }
 
 DASS42_OPTIONS = {
